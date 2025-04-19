@@ -1,5 +1,3 @@
-
-
 """
 Tests for the `cloudcache` library.
 
@@ -33,12 +31,35 @@ def redis_available() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Fixtures
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def sqlite_cache():
+    """
+    Returns an instance of :class:`SQLAlchemyCache` bound to an in‑memory SQLite
+    database so each test gets a fresh, isolated cache.
+    """
+    return SQLAlchemyCache("sqlite:///:memory:")
+
+
+@pytest.fixture(scope="session")
+def redis_cache():
+    """
+    Provides a Redis‑backed cache decorator if a Redis server is available;
+    otherwise the fixture itself requests that the tests be skipped.
+    """
+    if not redis_available():
+        pytest.skip("Redis server not running on localhost:6379")
+    return RedisCache("redis://localhost:6379/0")
+
+
+# --------------------------------------------------------------------------- #
 # SQLAlchemy‑backed cache
 # --------------------------------------------------------------------------- #
-def test_sqlalchemy_cache_basic():
+def test_sqlalchemy_cache_basic(sqlite_cache):
     calls = {"count": 0}
 
-    @SQLAlchemyCache("sqlite:///:memory:")(maxsize=32)
+    @sqlite_cache(maxsize=32)
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
@@ -64,11 +85,10 @@ def test_sqlalchemy_cache_basic():
 # --------------------------------------------------------------------------- #
 # Redis‑backed cache (optional)
 # --------------------------------------------------------------------------- #
-@pytest.mark.skipif(not redis_available(), reason="Redis server not running on localhost:6379")
-def test_redis_cache_basic():
+def test_redis_cache_basic(redis_cache):
     calls = {"count": 0}
 
-    @RedisCache("redis://localhost:6379/0")(maxsize=64)
+    @redis_cache(maxsize=64)
     def mul(a: int, b: int) -> int:
         calls["count"] += 1
         return a * b
