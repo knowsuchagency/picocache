@@ -1,2 +1,2 @@
 test:
-    PYTHONPATH=. pytest tests/
+    PYTHONPATH=. uv run pytest tests/

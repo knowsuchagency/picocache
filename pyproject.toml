@@ -2,7 +2,7 @@
 name = "cloudcache"
 description = "persistent decorators mirroring functools.lru_cache"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "redis>=5.2.1",
     "sqlalchemy>=2.0.40",
