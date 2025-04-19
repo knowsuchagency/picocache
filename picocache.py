@@ -1,51 +1,22 @@
-"""picocache.py ‑ persistent decorators mirroring ``functools.lru_cache``
-=======================================================================
+"""picocache — persistent drop‑in replacements for functools.lru_cache.
 
-**Goal** – feel *identical* to ``functools.lru_cache`` for users, while storing
-results in either a SQL database (via SQLAlchemy) or Redis.  Therefore:
-
-* **Connection details → ``__init__``** – the class instance is initialised with
-  everything required to reach the datastore.
-* **Caching parameters → ``__call__``** – when you *apply* the instance as a
-  decorator you may pass ``maxsize`` / ``typed`` exactly like
-  ``lru_cache``::
-
-    from picocache import SQLAlchemyCache, RedisCache
-
-    # SQL example – build the decorator instance with connection info …
-    sql_cache = SQLAlchemyCache(url="sqlite:///cache.db")
-
-    # …then use it with familiar lru‑style knobs
-    @sql_cache(maxsize=512, typed=True)
-    def fib(n: int) -> int:
-        return n if n < 2 else fib(n‑1) + fib(n‑2)
-
-    # Redis example – in one line
-    @RedisCache(host="localhost", port=6379)(maxsize=256)
-    def slow_value(x: str):
-        return x.upper()
-
-The wrapped function gets ``cache_info`` and ``cache_clear`` helpers identical
-in spirit to those from ``functools``.
-
--------------------------------------------------------------------------------
-                               Implementation
--------------------------------------------------------------------------------
+Exposes two decorators, `SQLAlchemyCache` and `RedisCache`, that mirror the
+standard library API while persisting results in a database (via SQLAlchemy)
+or in Redis so cached values survive process restarts and can be shared
+across workers.
 """
 
 from __future__ import annotations
+from typing import Any, Callable, Dict, Tuple
 
+import redis
+from sqlalchemy import Column, MetaData, String, Table, create_engine, select, text
 import functools
 import hashlib
-import inspect
 import pickle
 import threading
-import time
-from typing import Any, Callable, Dict, Hashable, Tuple
 
-__version__ = "0.1.0"
-
-# ----------------------------- key utilities ---------------------------------
+__version__ = "0.2.0"
 
 
 def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str:
@@ -53,7 +24,6 @@ def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str
     ``functools._make_key`` but returns hex digest for external storage)."""
     key_parts: Tuple[Any, ...] = args
     if kwargs:
-        # Convert kwargs to a tuple sorted by key to achieve stable ordering
         key_parts += (object(),)  # separator to avoid collisions
         for item in sorted(kwargs.items()):
             key_parts += item
@@ -65,13 +35,9 @@ def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str
     return hashlib.sha256(pickled).hexdigest()
 
 
-# ------------------------------ base class ------------------------------------
-
-
 class _BaseCache:
     """Shared functionality for SQLAlchemyCache & RedisCache."""
 
-    #: default pickle protocol – override if you want different serialisation
     _PROTO = pickle.HIGHEST_PROTOCOL
 
     def __init__(
@@ -80,7 +46,6 @@ class _BaseCache:
         self._default_maxsize = default_maxsize
         self._default_typed = default_typed
 
-    # API façade --------------------------------------------------------------
     def __call__(
         self, maxsize: int | None | Ellipsis = ..., typed: bool | Ellipsis = ...
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # noqa: D401,E501
@@ -92,12 +57,10 @@ class _BaseCache:
         positional arg may be the *function* when decorator is used without
         parentheses)."""
 
-        # Support usage without explicit parentheses – e.g. ``@cache``
         if callable(maxsize) and typed is ...:  # maxsize is actually the func
             func = maxsize  # type: ignore[assignment]
             return self._build_wrapper(func, self._default_maxsize, self._default_typed)
 
-        # Otherwise user provided parameters explicitly
         actual_maxsize = self._default_maxsize if maxsize is ... else maxsize  # type: ignore[assignment]
         actual_typed = self._default_typed if typed is ... else typed  # type: ignore[assignment]
 
@@ -106,9 +69,6 @@ class _BaseCache:
 
         return decorator
 
-    # ---------------------------------------------------------------------
-    # Concrete subclasses must implement the following three abstract helpers
-    # ---------------------------------------------------------------------
     def _lookup(self, key: str) -> Any | _MISSING:  # noqa: D401
         raise NotImplementedError
 
@@ -118,58 +78,42 @@ class _BaseCache:
     def _evict_if_needed(self) -> None:  # noqa: D401
         raise NotImplementedError
 
-    # ------------------------ wrapper factory ------------------------------
     def _build_wrapper(
         self, func: Callable[..., Any], maxsize: int | None, typed: bool
     ) -> Callable[..., Any]:
-        # In‑process LRU front‑end for speed (delegates size handling to functools) –
-        # this also means we get free ``cache_info``/``cache_clear`` helpers.
         memory_cache = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
         lock = threading.RLock()
 
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
             key = _make_key(args, kwargs, typed)
-            # 1️⃣ Fast path: memory cache
             try:
                 return memory_cache(*args, **kwargs)
             except Exception:  # noqa: BLE001 – ignore & fall‑through to datastore
                 pass
 
             with lock:
-                # 2️⃣ Check external store
                 result = self._lookup(key)
                 if result is not _MISSING:
-                    # Populate memory cache so subsequent hits are fast
                     memory_cache(*args, **kwargs)  # prime but ignore return
                     return result
 
-                # 3️⃣ Compute & persist
                 result = func(*args, **kwargs)
                 self._evict_if_needed()
                 self._store(key, result)
-                # Prime memory cache
                 memory_cache(*args, **kwargs)
                 return result
 
-        # expose helpers matching functools interface
         wrapper.cache_info = memory_cache.cache_info  # type: ignore[attr-defined]
         wrapper.cache_clear = memory_cache.cache_clear  # type: ignore[attr-defined]
         return wrapper
 
 
-# sentinel
 class _Missing:
     pass
 
 
 _MISSING = _Missing()
-
-# ----------------------- SQLAlchemy implementation ---------------------------
-
-from sqlalchemy import Column, MetaData, String, Table, create_engine, select, text
-from sqlalchemy.exc import OperationalError
-
 
 class SQLAlchemyCache(_BaseCache):
     """Persistent cache backed by any SQLAlchemy‑supported database."""
@@ -212,9 +156,8 @@ class SQLAlchemyCache(_BaseCache):
             Column("value", String),
         )
         self._metadata.create_all(self._engine)
-        self._size = 0  # track count for naïve eviction
+        self._size = 0
 
-    # datastore hooks -------------------------------------------------------
     def _lookup(self, key: str):
         with self._engine.begin() as conn:
             row = conn.execute(
@@ -244,8 +187,6 @@ class SQLAlchemyCache(_BaseCache):
         self._size += 1
 
     def _evict_if_needed(self):
-        # Simple size cap: if table rows > 10_000 delete oldest (timestamp not stored
-        # so we drop random).  Users needing more control should manage externally.
         if self._size <= 10_000:
             return
         with self._engine.begin() as conn:
@@ -255,11 +196,6 @@ class SQLAlchemyCache(_BaseCache):
                 )
             )
         self._size -= 1000
-
-
-# ------------------------------ Redis backend --------------------------------
-
-import redis
 
 
 class RedisCache(_BaseCache):
@@ -285,7 +221,6 @@ class RedisCache(_BaseCache):
         self._ns = namespace + ":"
         self._default_ttl = default_ttl
 
-    # datastore hooks -------------------------------------------------------
     def _lookup(self, key: str):
         data = self._r.get(self._ns + key)
         if data is None:
@@ -300,11 +235,7 @@ class RedisCache(_BaseCache):
             self._r.setex(self._ns + key, self._default_ttl, pickled)
 
     def _evict_if_needed(self):
-        # rely on Redis's own eviction policy; nothing to do here
         pass
-
-
-# ------------------------------ helpers --------------------------------------
 
 
 def _copy_metadata(src_func: Callable[..., Any]):
@@ -314,6 +245,3 @@ def _copy_metadata(src_func: Callable[..., Any]):
         assigned=functools.WRAPPER_ASSIGNMENTS + ("__annotations__",),
         updated=(),
     )
-
-
-# ---------------------------------- eof --------------------------------------
