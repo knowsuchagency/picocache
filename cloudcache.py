@@ -42,6 +42,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, Hashable, Tuple
 
+__version__ = "0.1.0"
+
 # ----------------------------- key utilities ---------------------------------
 
 def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str:

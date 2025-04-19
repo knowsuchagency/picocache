@@ -1,15 +1,20 @@
 [project]
 name = "cloudcache"
-version = "0.1.0"
-description = "Add your description here"
+description = "persistent decorators mirroring functools.lru_cache"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "redis>=5.2.1",
     "sqlalchemy>=2.0.40",
 ]
+dynamic = ["version"]
+license = {file = "LICENSE"}
 
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
 ]
+
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = ["flit_core >=3.2,<4"]
