@@ -1,18 +1,18 @@
 [project]
-name = "cloudcache"
-description = "persistent decorators mirroring functools.lru_cache"
-readme = "README.md"
-requires-python = ">=3.11"
 dependencies = [
-    "redis>=5.2.1",
-    "sqlalchemy>=2.0.40",
+  "redis>=5.2.1",
+  "sqlalchemy>=2.0.40",
 ]
+description = "persistent decorators mirroring functools.lru_cache"
 dynamic = ["version"]
 license = {file = "LICENSE"}
+name = "picocache"
+readme = "README.md"
+requires-python = ">=3.11"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.5",
+  "pytest>=8.3.5",
 ]
 
 [build-system]

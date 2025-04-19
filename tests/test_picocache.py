@@ -1,5 +1,5 @@
 """
-Tests for the `cloudcache` library.
+Tests for the `picocache` library.
 
 These tests exercise both the SQLAlchemy‑backed and Redis‑backed decorators
 to ensure they behave exactly like `functools.lru_cache` with respect to
@@ -12,7 +12,7 @@ on the default port (6379); if it is not available the tests are skipped.
 
 import pytest
 
-from cloudcache import SQLAlchemyCache, RedisCache
+from picocache import SQLAlchemyCache, RedisCache
 
 
 # --------------------------------------------------------------------------- #

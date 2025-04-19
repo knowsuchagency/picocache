@@ -1,4 +1,4 @@
-"""cloudcache.py ‑ persistent decorators mirroring ``functools.lru_cache``
+"""picocache.py ‑ persistent decorators mirroring ``functools.lru_cache``
 =======================================================================
 
 **Goal** – feel *identical* to ``functools.lru_cache`` for users, while storing
@@ -10,7 +10,7 @@ results in either a SQL database (via SQLAlchemy) or Redis.  Therefore:
   decorator you may pass ``maxsize`` / ``typed`` exactly like
   ``lru_cache``::
 
-    from cloudcache import SQLAlchemyCache, RedisCache
+    from picocache import SQLAlchemyCache, RedisCache
 
     # SQL example – build the decorator instance with connection info …
     sql_cache = SQLAlchemyCache(url="sqlite:///cache.db")
@@ -32,6 +32,7 @@ in spirit to those from ``functools``.
                                Implementation
 -------------------------------------------------------------------------------
 """
+
 from __future__ import annotations
 
 import functools
@@ -45,6 +46,7 @@ from typing import Any, Callable, Dict, Hashable, Tuple
 __version__ = "0.1.0"
 
 # ----------------------------- key utilities ---------------------------------
+
 
 def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str:
     """Create a stable hashable key from call args/kwargs (mimics internal
@@ -62,7 +64,9 @@ def _make_key(args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool) -> str
     pickled = pickle.dumps(key_parts, protocol=pickle.HIGHEST_PROTOCOL)
     return hashlib.sha256(pickled).hexdigest()
 
+
 # ------------------------------ base class ------------------------------------
+
 
 class _BaseCache:
     """Shared functionality for SQLAlchemyCache & RedisCache."""
@@ -70,12 +74,16 @@ class _BaseCache:
     #: default pickle protocol – override if you want different serialisation
     _PROTO = pickle.HIGHEST_PROTOCOL
 
-    def __init__(self, *, default_maxsize: int | None = 128, default_typed: bool = False) -> None:
+    def __init__(
+        self, *, default_maxsize: int | None = 128, default_typed: bool = False
+    ) -> None:
         self._default_maxsize = default_maxsize
         self._default_typed = default_typed
 
     # API façade --------------------------------------------------------------
-    def __call__(self, maxsize: int | None | Ellipsis = ..., typed: bool | Ellipsis = ...) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # noqa: D401,E501
+    def __call__(
+        self, maxsize: int | None | Ellipsis = ..., typed: bool | Ellipsis = ...
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # noqa: D401,E501
         """Return a *decorator* with caching parameters (mirrors ``lru_cache``).
 
         ``maxsize``/``typed`` override defaults supplied to ``__init__``.  Using
@@ -111,7 +119,9 @@ class _BaseCache:
         raise NotImplementedError
 
     # ------------------------ wrapper factory ------------------------------
-    def _build_wrapper(self, func: Callable[..., Any], maxsize: int | None, typed: bool) -> Callable[..., Any]:
+    def _build_wrapper(
+        self, func: Callable[..., Any], maxsize: int | None, typed: bool
+    ) -> Callable[..., Any]:
         # In‑process LRU front‑end for speed (delegates size handling to functools) –
         # this also means we get free ``cache_info``/``cache_clear`` helpers.
         memory_cache = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
@@ -147,9 +157,11 @@ class _BaseCache:
         wrapper.cache_clear = memory_cache.cache_clear  # type: ignore[attr-defined]
         return wrapper
 
+
 # sentinel
 class _Missing:
     pass
+
 
 _MISSING = _Missing()
 
@@ -157,6 +169,7 @@ _MISSING = _Missing()
 
 from sqlalchemy import Column, MetaData, String, Table, create_engine, select, text
 from sqlalchemy.exc import OperationalError
+
 
 class SQLAlchemyCache(_BaseCache):
     """Persistent cache backed by any SQLAlchemy‑supported database."""
@@ -170,7 +183,7 @@ class SQLAlchemyCache(_BaseCache):
         host: str | None = None,
         port: int | None = None,
         database: str | None = None,
-        table_name: str = "cloudcache",
+        table_name: str = "picocache",
         echo: bool = False,
         **kw: Any,
     ) -> None:
@@ -181,7 +194,14 @@ class SQLAlchemyCache(_BaseCache):
             from sqlalchemy.engine.url import URL
 
             url = str(
-                URL.create(drivername, username=username, password=password, host=host, port=port, database=database)
+                URL.create(
+                    drivername,
+                    username=username,
+                    password=password,
+                    host=host,
+                    port=port,
+                    database=database,
+                )
             )
         self._engine = create_engine(url, echo=echo, future=True)
         self._metadata = MetaData()
@@ -197,7 +217,9 @@ class SQLAlchemyCache(_BaseCache):
     # datastore hooks -------------------------------------------------------
     def _lookup(self, key: str):
         with self._engine.begin() as conn:
-            row = conn.execute(select(self._table.c.value).where(self._table.c.key == key)).fetchone()
+            row = conn.execute(
+                select(self._table.c.value).where(self._table.c.key == key)
+            ).fetchone()
             if row is None:
                 return _MISSING
             return pickle.loads(bytes.fromhex(row.value))
@@ -206,9 +228,17 @@ class SQLAlchemyCache(_BaseCache):
         pickled = pickle.dumps(value, protocol=self._PROTO).hex()
         with self._engine.begin() as conn:
             conn.execute(
-                self._table.insert().values(key=key, value=pickled).on_conflict_do_nothing(index_elements=["key"])
-                if self._engine.dialect.name == "postgresql"
-                else text("INSERT OR IGNORE INTO {} (key, value) VALUES (:key, :value)".format(self._table.name)),
+                (
+                    self._table.insert()
+                    .values(key=key, value=pickled)
+                    .on_conflict_do_nothing(index_elements=["key"])
+                    if self._engine.dialect.name == "postgresql"
+                    else text(
+                        "INSERT OR IGNORE INTO {} (key, value) VALUES (:key, :value)".format(
+                            self._table.name
+                        )
+                    )
+                ),
                 {"key": key, "value": pickled},
             )
         self._size += 1
@@ -219,12 +249,18 @@ class SQLAlchemyCache(_BaseCache):
         if self._size <= 10_000:
             return
         with self._engine.begin() as conn:
-            conn.execute(text(f"DELETE FROM {self._table.name} WHERE rowid IN (SELECT rowid FROM {self._table.name} LIMIT 1000)"))
+            conn.execute(
+                text(
+                    f"DELETE FROM {self._table.name} WHERE rowid IN (SELECT rowid FROM {self._table.name} LIMIT 1000)"
+                )
+            )
         self._size -= 1000
+
 
 # ------------------------------ Redis backend --------------------------------
 
 import redis
+
 
 class RedisCache(_BaseCache):
     """Persistent cache backed by Redis."""
@@ -236,12 +272,16 @@ class RedisCache(_BaseCache):
         port: int = 6379,
         db: int = 0,
         password: str | None = None,
-        namespace: str = "cloudcache",
+        namespace: str = "picocache",
         default_ttl: int | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
-        self._r = redis.Redis.from_url(url) if url else redis.Redis(host=host, port=port, db=db, password=password)
+        self._r = (
+            redis.Redis.from_url(url)
+            if url
+            else redis.Redis(host=host, port=port, db=db, password=password)
+        )
         self._ns = namespace + ":"
         self._default_ttl = default_ttl
 
@@ -263,10 +303,17 @@ class RedisCache(_BaseCache):
         # rely on Redis's own eviction policy; nothing to do here
         pass
 
+
 # ------------------------------ helpers --------------------------------------
+
 
 def _copy_metadata(src_func: Callable[..., Any]):
     """Return a ``functools.wraps`` decorator pre‑configured for *src_func*."""
-    return functools.wraps(src_func, assigned=functools.WRAPPER_ASSIGNMENTS + ("__annotations__",), updated=())
+    return functools.wraps(
+        src_func,
+        assigned=functools.WRAPPER_ASSIGNMENTS + ("__annotations__",),
+        updated=(),
+    )
+
 
 # ---------------------------------- eof --------------------------------------

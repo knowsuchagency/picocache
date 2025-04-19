@@ -1,31 +1,31 @@
-# CloudCache
+# PicoCache
 
 **Persistent, datastore‑backed `lru_cache` for Python.**  
-CloudCache gives you the ergonomics of `functools.lru_cache` while keeping your
+PicoCache gives you the ergonomics of `functools.lru_cache` while keeping your
 cached values safe across process restarts and even across machines.  
 Two back‑ends are provided out of the box:
 
-* **SQLAlchemyCache** – persists to any RDBMS supported by
+- **SQLAlchemyCache** – persists to any RDBMS supported by
   [SQLAlchemy](https://www.sqlalchemy.org/) (SQLite, Postgres, MySQL, …).
-* **RedisCache** – stores values in [Redis](https://redis.io/), perfect for
+- **RedisCache** – stores values in [Redis](https://redis.io/), perfect for
   distributed deployments.
 
 ---
 
-## Why CloudCache?
+## Why PicoCache?
 
-* **Familiar API** – decorators feel _identical_ to `functools.lru_cache`.
-* **Durable** – survive restarts, scale horizontally.
-* **Introspectable** – `cache_info()` and `cache_clear()` just like the
+- **Familiar API** – decorators feel _identical_ to `functools.lru_cache`.
+- **Durable** – survive restarts, scale horizontally.
+- **Introspectable** – `cache_info()` and `cache_clear()` just like the
   standard library.
-* **Zero boilerplate** – pass a connection URL and start decorating.
+- **Zero boilerplate** – pass a connection URL and start decorating.
 
 ---
 
 ## Installation
 
 ```bash
-pip install cloudcache
+pip install picocache
 ```
 
 ---
@@ -35,7 +35,7 @@ pip install cloudcache
 ### 1. SQL (SQLite example)
 
 ```python
-from cloudcache import SQLAlchemyCache
+from picocache import SQLAlchemyCache
 
 # Create the decorator bound to an SQLite file
 sql_cache = SQLAlchemyCache("sqlite:///cache.db")
@@ -48,7 +48,7 @@ def fib(n: int) -> int:
 ### 2. Redis
 
 ```python
-from cloudcache import RedisCache
+from picocache import RedisCache
 
 redis_cache = RedisCache("redis://localhost:6379/0")
 
@@ -74,17 +74,18 @@ RedisCache(url_or_params, *, key_serializer=None, value_serializer=None, ...)
 ```
 
 ### `__call__(maxsize=128, typed=False)`
+
 Returns a decorator that memoises the target function.
 
-| Param   | Type    | Default | Meaning                                  |
-| ------- | ------- | ------- | ---------------------------------------- |
-| `maxsize` | `int`/`None` | `128` | Per‑function entry limit (`None` → no limit). |
-| `typed`   | `bool` | `False`| Treat arguments with different types as distinct (same as stdlib). |
+| Param     | Type         | Default | Meaning                                                            |
+| --------- | ------------ | ------- | ------------------------------------------------------------------ |
+| `maxsize` | `int`/`None` | `128`   | Per‑function entry limit (`None` → no limit).                      |
+| `typed`   | `bool`       | `False` | Treat arguments with different types as distinct (same as stdlib). |
 
 The wrapped function gains:
 
-* **`.cache_info()`** → `namedtuple(hits, misses, currsize, maxsize)`
-* **`.cache_clear()`** → empties the persistent store for that function.
+- **`.cache_info()`** → `namedtuple(hits, misses, currsize, maxsize)`
+- **`.cache_clear()`** → empties the persistent store for that function.
 
 ---
 
@@ -95,8 +96,8 @@ uv sync
 just test
 ```
 
-* SQL tests run against an **in‑memory** SQLite DB (no external services).
-* Redis tests are skipped automatically unless a Redis server is available on
+- SQL tests run against an **in‑memory** SQLite DB (no external services).
+- Redis tests are skipped automatically unless a Redis server is available on
   `localhost:6379`.
 
 ---
