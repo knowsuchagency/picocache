@@ -64,26 +64,60 @@ class _BaseCache:
         memory_cache = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
         lock = threading.RLock()
 
+        # Check if the backend instance uses its own TTL mechanism
+        # DjangoCache uses _default_timeout, RedisCache uses _default_ttl
+        backend_has_ttl = (
+            hasattr(self, "_default_timeout")
+            and getattr(self, "_default_timeout") is not None
+            or hasattr(self, "_default_ttl")
+            and getattr(self, "_default_ttl") is not None
+        )
+
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
             key = _make_key(args, kwargs, typed)
-            try:
-                return memory_cache(*args, **kwargs)
-            except Exception:  # noqa: BLE001 – ignore & fall‑through to datastore
-                pass
+
+            # If backend manages TTL, bypass in-memory cache lookup
+            if not backend_has_ttl:
+                try:
+                    return memory_cache(*args, **kwargs)
+                except Exception:  # noqa: BLE001 – ignore & fall‑through to datastore
+                    pass
 
             with lock:
                 result = self._lookup(key)
                 if result is not _MISSING:
-                    memory_cache(*args, **kwargs)  # prime but ignore return
+                    # If backend manages TTL, don't prime the in-memory cache
+                    if not backend_has_ttl:
+                        memory_cache(*args, **kwargs)  # prime but ignore return
                     return result
 
                 result = func(*args, **kwargs)
                 self._evict_if_needed()
                 self._store(key, result)
-                memory_cache(*args, **kwargs)
+                # If backend manages TTL, don't prime the in-memory cache
+                if not backend_has_ttl:
+                    memory_cache(*args, **kwargs)
                 return result
 
-        wrapper.cache_info = memory_cache.cache_info  # type: ignore[attr-defined]
-        wrapper.cache_clear = memory_cache.cache_clear  # type: ignore[attr-defined]
+        # Expose cache_info and cache_clear from the persistent backend if backend handles TTL,
+        # otherwise use the in-memory lru_cache's methods.
+        # Note: Persistent backends might need to implement these.
+        if backend_has_ttl:
+            # TODO: Implement cache_info/cache_clear on TTL backends if needed
+            # For now, provide dummy methods or raise NotImplementedError
+            def cache_info():
+                # Placeholder: Actual implementation would need backend interaction
+                return memory_cache.cache_info()  # Or fetch from backend
+
+            def cache_clear():
+                # Placeholder: Actual implementation would need backend interaction
+                pass  # Or trigger backend clear
+
+            wrapper.cache_info = cache_info  # type: ignore[attr-defined]
+            wrapper.cache_clear = cache_clear  # type: ignore[attr-defined]
+
+        else:
+            wrapper.cache_info = memory_cache.cache_info  # type: ignore[attr-defined]
+            wrapper.cache_clear = memory_cache.cache_clear  # type: ignore[attr-defined]
         return wrapper
