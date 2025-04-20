@@ -61,19 +61,24 @@ class RedisCache(_BaseCache):
         pass
 
     def _clear(self) -> None:
-        """Clear all keys within the namespace.
-
-        Warning: Uses KEYS, which can be slow on large databases.
-        SCAN is recommended for production use.
-        """
-        keys_to_delete = self._r.keys(self._ns + "*")
-        if keys_to_delete:
-            self._r.delete(*keys_to_delete)
+        """Clear all keys within the namespace using SCAN."""
+        cursor = 0
+        match = self._ns + "*"
+        while True:
+            cursor, keys = self._r.scan(cursor=cursor, match=match)
+            if keys:
+                self._r.delete(*keys)
+            if cursor == 0:
+                break
 
     def _get_current_size(self) -> int:
-        """Return the number of keys within the namespace.
-
-        Warning: Uses KEYS, which can be slow on large databases.
-        SCAN is recommended for production use.
-        """
-        return len(self._r.keys(self._ns + "*"))
+        """Return the number of keys within the namespace using SCAN."""
+        count = 0
+        cursor = 0
+        match = self._ns + "*"
+        while True:
+            cursor, keys = self._r.scan(cursor=cursor, match=match)
+            count += len(keys)
+            if cursor == 0:
+                break
+        return count
