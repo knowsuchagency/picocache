@@ -1,8 +1,5 @@
 [project]
-dependencies = [
-  "redis>=5.2.1",
-  "sqlalchemy>=2.0.40",
-]
+dependencies = []
 description = "persistent decorators mirroring functools.lru_cache"
 dynamic = ["version"]
 license = {file = "LICENSE"}
@@ -13,6 +10,15 @@ requires-python = ">=3.11"
 [dependency-groups]
 dev = [
   "pytest>=8.3.5",
+]
+redis = [
+  "redis>=5.2.1",
+]
+sqlalchemy = [
+  "sqlalchemy>=2.0.40",
+]
+django = [
+    "django>=5.0.0",
 ]
 
 [build-system]

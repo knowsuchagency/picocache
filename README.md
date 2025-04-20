@@ -3,12 +3,16 @@
 **Persistent, datastore‑backed `lru_cache` for Python.**  
 PicoCache gives you the ergonomics of `functools.lru_cache` while keeping your
 cached values safe across process restarts and even across machines.  
-Two back‑ends are provided out of the box:
+PicoCache ships with a zero‑dependency **SQLiteCache** that relies only on the
+standard‑library `sqlite3` module.  Additional back‑ends can be enabled via
+*extras*:
 
-- **SQLAlchemyCache** – persists to any RDBMS supported by
-  [SQLAlchemy](https://www.sqlalchemy.org/) (SQLite, Postgres, MySQL, …).
-- **RedisCache** – stores values in [Redis](https://redis.io/), perfect for
+- **SQLAlchemyCache** – persists to any SQL database supported by
+  [SQLAlchemy](https://www.sqlalchemy.org/).
+- **RedisCache** – stores values in [Redis](https://redis.io/), ideal for
   distributed deployments.
+- **DjangoCache** – plugs straight into Django’s configured cache backend
+  (Memcached, Redis, database, etc.).
 
 ---
 
@@ -25,14 +29,34 @@ Two back‑ends are provided out of the box:
 ## Installation
 
 ```bash
+# core (built‑in SQLiteCache, no external deps)
 pip install picocache
+
+# optional extras
+pip install picocache[redis]        # RedisCache
+pip install picocache[sqlalchemy]   # SQLAlchemyCache
+pip install picocache[django]       # DjangoCache
+# or any combination, e.g.
+pip install "picocache[redis,sqlalchemy]"
 ```
 
 ---
 
 ## Quick‑start
 
-### 1. SQL (SQLite example)
+### 1. Built‑in SQLiteCache (no external deps)
+
+```python
+from picocache import SQLiteCache   # NEW!
+
+cache = SQLiteCache("cache.db")     # file path defaults to ./picocache.db
+
+@cache(maxsize=256)
+def fib(n: int) -> int:
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+```
+
+### 2. SQLAlchemy back‑end
 
 ```python
 from picocache import SQLAlchemyCache
@@ -45,7 +69,7 @@ def fib(n: int) -> int:
     return n if n < 2 else fib(n - 1) + fib(n - 2)
 ```
 
-### 2. Redis
+### 3. Redis
 
 ```python
 from picocache import RedisCache
@@ -61,16 +85,29 @@ def slow_add(a: int, b: int) -> int:
 On the second call with the same arguments, `slow_add()` returns instantly and
 _“Executing body…”_ is **not** printed – the result came from Redis.
 
+### 4. Django
+
+```python
+from picocache import DjangoCache
+
+django_cache = DjangoCache()          # uses settings.CACHES["default"]
+
+@django_cache(maxsize=None)           # unlimited size, rely on Django’s TTL
+def expensive_fn(x):
+    ...
+```
+
 ---
 
 ## API
 
-Each decorator object is initialised with connection details and **called** with
+Each decorator is constructed with connection details (if any) and **called** with
 the same signature as `functools.lru_cache`:
 
 ```python
 SQLAlchemyCache(url_or_engine, *, key_serializer=None, value_serializer=None, ...)
 RedisCache(url_or_params, *, key_serializer=None, value_serializer=None, ...)
+DjangoCache(*, key_serializer=None, value_serializer=None, ...)
 ```
 
 ### `__call__(maxsize=128, typed=False)`
