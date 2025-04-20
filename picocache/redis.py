@@ -18,7 +18,7 @@ class RedisCache(_BaseCache):
         db: int = 0,
         password: str | None = None,
         namespace: str = "picocache",
-        default_ttl: int | None = None,
+        ttl: int | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
@@ -28,7 +28,7 @@ class RedisCache(_BaseCache):
             else redis.Redis(host=host, port=port, db=db, password=password)
         )
         self._ns = namespace + ":"
-        self._default_ttl = default_ttl
+        self._default_ttl = ttl
 
     def _lookup(self, key: str):
         data = self._r.get(self._ns + key)

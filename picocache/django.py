@@ -15,12 +15,12 @@ class DjangoCache(_BaseCache):
     def __init__(
         self,
         alias: str = "default",
-        default_timeout: int | None = None,  # Django uses 'timeout'
+        timeout: int | None = None,  # Django uses 'timeout'
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
         self._cache: DjangoBaseCache = caches[alias]
-        self._default_timeout = default_timeout
+        self._default_timeout = timeout
 
     def _lookup(self, key: str) -> Any | _MISSING:
         # Django's cache returns None for missing keys.

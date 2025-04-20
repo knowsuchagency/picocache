@@ -67,7 +67,7 @@ def test_django_cache_basic():
 def test_django_cache_custom_timeout():
     """Test that DjangoCache works with custom timeout."""
     # Using a very short timeout for testing
-    cache_deco = DjangoCache(default_timeout=1)
+    cache_deco = DjangoCache(timeout=1)
     calls = {"count": 0}
 
     @cache_deco(maxsize=32)

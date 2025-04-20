@@ -12,11 +12,11 @@ from .base import _BaseCache, _MISSING
 class SQLiteCache(_BaseCache):
     """Persistent cache backed by SQLite."""
 
-    _TABLE_NAME = "cache"
+    _TABLE_NAME = "picocache"
 
     def __init__(
         self,
-        db_path: str = "./picocache.db",
+        db_path: str = "picocache.db",
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
