@@ -33,10 +33,10 @@ from picocache import DjangoCache
 
 def test_django_cache_basic():
     """Test that DjangoCache works correctly with basic operations."""
-    cache_deco = DjangoCache()
+    cache = DjangoCache()
     calls = {"count": 0}
 
-    @cache_deco(maxsize=32)
+    @cache
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
