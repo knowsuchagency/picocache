@@ -51,7 +51,7 @@ from picocache import SQLiteCache
 
 cache = SQLiteCache("cache.db")     # defaults to ./picocache.db
 
-@cache(maxsize=256)
+@cache
 def fib(n: int) -> int:
     return n if n < 2 else fib(n - 1) + fib(n - 2)
 ```
