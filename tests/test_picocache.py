@@ -1,14 +1,15 @@
 """
 Parametrised integration test for *all* picocache back‑ends.
 
-The single test below is executed three times—once each for SQLiteCache
-(stdlib, no deps), SQLAlchemyCache, and RedisCache—verifying that every
+The single test below is executed four times—once each for SQLiteCache
+(stdlib, no deps), SQLAlchemyCache, RedisCache, and DjangoCache—verifying that every
 implementation behaves like `functools.lru_cache` with respect to hits,
 misses, `cache_info`, and `cache_clear`.
 
 * SQLiteCache uses a temporary on‑disk database that is deleted afterwards.
 * SQLAlchemyCache uses an in‑memory SQLite URL.
 * RedisCache is skipped automatically if no local Redis server is running.
+* DjangoCache is skipped if Django is not installed or cannot be configured.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import pytest
 from picocache import SQLiteCache, SQLAlchemyCache, RedisCache
 
 # --------------------------------------------------------------------------- #
-# Helper
+# Helpers
 # --------------------------------------------------------------------------- #
 
 
@@ -41,14 +42,38 @@ def _redis_available() -> bool:
         return False
 
 
+def _django_available() -> bool:
+    """Return True if Django is installed and can be configured."""
+    try:
+        import django
+        from django.conf import settings
+
+        if not settings.configured:
+            settings.configure(
+                CACHES={
+                    "default": {
+                        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                        "LOCATION": "picocache-test",
+                    }
+                },
+                DATABASES={},
+                INSTALLED_APPS=[],
+                SECRET_KEY="fake-key-for-testing",
+            )
+            django.setup()
+        return True
+    except (ModuleNotFoundError, ImportError):
+        return False
+
+
 # --------------------------------------------------------------------------- #
 # Parametrised fixture returning a cache decorator instance
 # --------------------------------------------------------------------------- #
 
 
 @pytest.fixture(
-    params=("sqlite", "sqlalchemy", "redis"),
-    ids=("SQLiteCache", "SQLAlchemyCache", "RedisCache"),
+    params=("sqlite", "sqlalchemy", "redis", "django"),
+    ids=("SQLiteCache", "SQLAlchemyCache", "RedisCache", "DjangoCache"),
 )
 def cache(request) -> Iterator[Tuple[str, Callable[[Callable[..., Any]], Any]]]:
     """Yield `(backend_name, decorator_instance)` for each supported back‑end."""
@@ -76,6 +101,16 @@ def cache(request) -> Iterator[Tuple[str, Callable[[Callable[..., Any]], Any]]]:
         if not _redis_available():
             pytest.skip("Redis server not running on localhost:6379")
         deco = RedisCache("redis://localhost:6379/0")
+        yield kind, deco
+        return
+
+    # DjangoCache - skip if Django is not installed
+    if kind == "django":
+        if not _django_available():
+            pytest.skip("Django not installed or could not be configured")
+        from picocache import DjangoCache
+
+        deco = DjangoCache()
         yield kind, deco
         return
 
