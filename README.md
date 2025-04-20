@@ -110,7 +110,7 @@ RedisCache(url_or_params, *, key_serializer=None, value_serializer=None, ...)
 DjangoCache(*, key_serializer=None, value_serializer=None, ...)
 ```
 
-### `__call__(maxsize=128, typed=False)`
+### `__call__(maxsize=None, typed=False)`
 
 Returns a decorator that memoises the target function.
 
