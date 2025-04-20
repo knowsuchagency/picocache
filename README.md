@@ -116,7 +116,7 @@ Returns a decorator that memoises the target function.
 
 | Param     | Type         | Default | Meaning                                                            |
 | --------- | ------------ | ------- | ------------------------------------------------------------------ |
-| `maxsize` | `int`/`None` | `128`   | Per‑function entry limit (`None` → no limit).                      |
+| `maxsize` | `int`/`None` | `None`   | Per‑function entry limit (`None` → no limit).                      |
 | `typed`   | `bool`       | `False` | Treat arguments with different types as distinct (same as stdlib). |
 
 The wrapped function gains:
