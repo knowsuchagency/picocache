@@ -21,7 +21,7 @@ class _BaseCache:
     _PROTO = pickle.HIGHEST_PROTOCOL
 
     def __init__(
-        self, *, default_maxsize: int | None = 128, default_typed: bool = False
+        self, *, default_maxsize: int | None = None, default_typed: bool = False
     ) -> None:
         self._default_maxsize = default_maxsize
         self._default_typed = default_typed
