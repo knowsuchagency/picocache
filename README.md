@@ -49,7 +49,7 @@ pip install "picocache[redis,sqlalchemy]"
 ```python
 from picocache import SQLiteCache
 
-cache = SQLiteCache("cache.db")     # defaults to ./picocache.db
+cache = SQLiteCache()     # defaults to ./picocache.db
 
 @cache
 def fib(n: int) -> int:
