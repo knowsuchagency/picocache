@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from .redis import RedisCache
 from .sqlalchemy import SQLAlchemyCache
+from .sqlite import SQLiteCache
 
 __version__ = "0.3.0"
 
 
-__all__ = ["SQLAlchemyCache", "RedisCache"]
+__all__ = ["SQLAlchemyCache", "RedisCache", "SQLiteCache"]

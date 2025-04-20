@@ -47,7 +47,7 @@ pip install "picocache[redis,sqlalchemy]"
 ### 1. Built‑in SQLiteCache (no external deps)
 
 ```python
-from picocache import SQLiteCache   # NEW!
+from picocache import SQLiteCache
 
 cache = SQLiteCache("cache.db")     # file path defaults to ./picocache.db
 

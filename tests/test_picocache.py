@@ -11,8 +11,10 @@ on the default port (6379); if it is not available the tests are skipped.
 """
 
 import pytest
+import tempfile
+import os
 
-from picocache import SQLAlchemyCache, RedisCache
+from picocache import SQLAlchemyCache, RedisCache, SQLiteCache
 
 
 # --------------------------------------------------------------------------- #
@@ -26,7 +28,7 @@ def redis_available() -> bool:
         r = redis.Redis(host="localhost", port=6379, socket_connect_timeout=0.5)
         r.ping()
         return True
-    except Exception:  # pragma: no cover – any failure means Redis is not up
+    except Exception:  # pragma: no cover – any failure means Redis is not up
         return False
 
 
@@ -34,12 +36,27 @@ def redis_available() -> bool:
 # Fixtures
 # --------------------------------------------------------------------------- #
 @pytest.fixture
-def sqlite_cache():
+def sqlalchemy_cache():
     """
     Returns an instance of :class:`SQLAlchemyCache` bound to an in‑memory SQLite
     database so each test gets a fresh, isolated cache.
     """
     return SQLAlchemyCache("sqlite:///:memory:")
+
+
+@pytest.fixture
+def sqlite_cache():
+    """
+    Returns an instance of :class:`SQLiteCache` using a temporary database file
+    so each test gets a fresh, isolated cache.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
+        db_path = tmp_file.name
+    cache = SQLiteCache(db_path=db_path)
+    yield cache
+    # Clean up the temporary database file
+    if os.path.exists(db_path):
+        os.remove(db_path)
 
 
 @pytest.fixture(scope="session")
@@ -56,10 +73,10 @@ def redis_cache():
 # --------------------------------------------------------------------------- #
 # SQLAlchemy‑backed cache
 # --------------------------------------------------------------------------- #
-def test_sqlalchemy_cache_basic(sqlite_cache):
+def test_sqlalchemy_cache_basic(sqlalchemy_cache):
     calls = {"count": 0}
 
-    @sqlite_cache(maxsize=32)
+    @sqlalchemy_cache(maxsize=32)
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
@@ -79,6 +96,35 @@ def test_sqlalchemy_cache_basic(sqlite_cache):
     # Clearing the cache forces recomputation
     add.cache_clear()
     assert add(1, 2) == 3
+    assert calls["count"] == 2
+
+
+# --------------------------------------------------------------------------- #
+# SQLite‑backed cache
+# --------------------------------------------------------------------------- #
+def test_sqlite_cache_basic(sqlite_cache):
+    calls = {"count": 0}
+
+    @sqlite_cache(maxsize=16)
+    def sub(a: int, b: int) -> int:
+        calls["count"] += 1
+        return a - b
+
+    # First invocation → cache miss
+    assert sub(10, 3) == 7
+    # Same arguments → served from cache
+    assert sub(10, 3) == 7
+    # Function body should have executed only once
+    assert calls["count"] == 1
+
+    info = sub.cache_info()
+    assert info.hits == 1
+    assert info.misses == 1
+    assert info.currsize == 1
+
+    # Clearing the cache forces recomputation
+    sub.cache_clear()
+    assert sub(10, 3) == 7
     assert calls["count"] == 2
 
 
