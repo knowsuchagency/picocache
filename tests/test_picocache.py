@@ -1,30 +1,39 @@
 """
-Tests for the `picocache` library.
+Parametrised integration test for *all* picocache back‑ends.
 
-These tests exercise both the SQLAlchemy‑backed and Redis‑backed decorators
-to ensure they behave exactly like `functools.lru_cache` with respect to
-hits, misses, and cache clearing.
+The single test below is executed three times—once each for SQLiteCache
+(stdlib, no deps), SQLAlchemyCache, and RedisCache—verifying that every
+implementation behaves like `functools.lru_cache` with respect to hits,
+misses, `cache_info`, and `cache_clear`.
 
-The SQLite tests use an in‑memory database so they require no external
-resources.  The Redis tests assume a Redis instance is running locally
-on the default port (6379); if it is not available the tests are skipped.
+* SQLiteCache uses a temporary on‑disk database that is deleted afterwards.
+* SQLAlchemyCache uses an in‑memory SQLite URL.
+* RedisCache is skipped automatically if no local Redis server is running.
 """
 
-import pytest
-import tempfile
+from __future__ import annotations
+
 import os
+import tempfile
+from typing import Iterator, Tuple, Callable, Any
 
-from picocache import SQLAlchemyCache, RedisCache, SQLiteCache
+import pytest
 
+from picocache import SQLiteCache, SQLAlchemyCache, RedisCache
 
 # --------------------------------------------------------------------------- #
 # Helper
 # --------------------------------------------------------------------------- #
-def redis_available() -> bool:
+
+
+def _redis_available() -> bool:
     """Return True if a Redis server is reachable on localhost:6379."""
     try:
-        import redis  # imported lazily so the package remains optional
+        import redis  # optional dependency
+    except ModuleNotFoundError:
+        return False
 
+    try:
         r = redis.Redis(host="localhost", port=6379, socket_connect_timeout=0.5)
         r.ping()
         return True
@@ -33,122 +42,74 @@ def redis_available() -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Fixtures
+# Parametrised fixture returning a cache decorator instance
 # --------------------------------------------------------------------------- #
-@pytest.fixture
-def sqlalchemy_cache():
-    """
-    Returns an instance of :class:`SQLAlchemyCache` bound to an in‑memory SQLite
-    database so each test gets a fresh, isolated cache.
-    """
-    return SQLAlchemyCache("sqlite:///:memory:")
 
 
-@pytest.fixture
-def sqlite_cache():
-    """
-    Returns an instance of :class:`SQLiteCache` using a temporary database file
-    so each test gets a fresh, isolated cache.
-    """
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
-        db_path = tmp_file.name
-    cache = SQLiteCache(db_path=db_path)
-    yield cache
-    # Clean up the temporary database file
-    if os.path.exists(db_path):
-        os.remove(db_path)
+@pytest.fixture(
+    params=("sqlite", "sqlalchemy", "redis"),
+    ids=("SQLiteCache", "SQLAlchemyCache", "RedisCache"),
+)
+def cache(request) -> Iterator[Tuple[str, Callable[[Callable[..., Any]], Any]]]:
+    """Yield `(backend_name, decorator_instance)` for each supported back‑end."""
+    kind: str = request.param
 
+    # SQLiteCache – temporary file to isolate state between test cases
+    if kind == "sqlite":
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = tmp.name
+        tmp.close()
+        deco = SQLiteCache(db_path=db_path)
+        yield kind, deco
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        return
 
-@pytest.fixture(scope="session")
-def redis_cache():
-    """
-    Provides a Redis‑backed cache decorator if a Redis server is available;
-    otherwise the fixture itself requests that the tests be skipped.
-    """
-    if not redis_available():
-        pytest.skip("Redis server not running on localhost:6379")
-    return RedisCache("redis://localhost:6379/0")
+    # SQLAlchemyCache – in‑memory SQLite URL
+    if kind == "sqlalchemy":
+        deco = SQLAlchemyCache("sqlite:///:memory:")
+        yield kind, deco
+        return
+
+    # RedisCache – skip if server unavailable
+    if kind == "redis":
+        if not _redis_available():
+            pytest.skip("Redis server not running on localhost:6379")
+        deco = RedisCache("redis://localhost:6379/0")
+        yield kind, deco
+        return
+
+    raise RuntimeError(f"Unknown cache kind: {kind!r}")  # safety net
 
 
 # --------------------------------------------------------------------------- #
-# SQLAlchemy‑backed cache
+# Generic test exercised for each back‑end via the parametrised fixture
 # --------------------------------------------------------------------------- #
-def test_sqlalchemy_cache_basic(sqlalchemy_cache):
+
+
+def test_basic_caching(cache):
+    backend_name, cache_deco = cache
     calls = {"count": 0}
 
-    @sqlalchemy_cache(maxsize=32)
+    # simple math function so result is deterministic & hashable
+    @cache_deco(maxsize=32)
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
 
-    # First invocation → cache miss
-    assert add(1, 2) == 3
-    # Same arguments → served from cache
-    assert add(1, 2) == 3
-    # Function body should have executed only once
-    assert calls["count"] == 1
+    # 1️⃣ first call → miss
+    assert add(3, 4) == 7
+    # 2️⃣ second call with same args → hit
+    assert add(3, 4) == 7
+    # func body should have run only once
+    assert calls["count"] == 1, f"{backend_name} failed to cache result"
 
     info = add.cache_info()
     assert info.hits == 1
     assert info.misses == 1
     assert info.currsize == 1
 
-    # Clearing the cache forces recomputation
+    # clearing should force recomputation
     add.cache_clear()
-    assert add(1, 2) == 3
-    assert calls["count"] == 2
-
-
-# --------------------------------------------------------------------------- #
-# SQLite‑backed cache
-# --------------------------------------------------------------------------- #
-def test_sqlite_cache_basic(sqlite_cache):
-    calls = {"count": 0}
-
-    @sqlite_cache(maxsize=16)
-    def sub(a: int, b: int) -> int:
-        calls["count"] += 1
-        return a - b
-
-    # First invocation → cache miss
-    assert sub(10, 3) == 7
-    # Same arguments → served from cache
-    assert sub(10, 3) == 7
-    # Function body should have executed only once
-    assert calls["count"] == 1
-
-    info = sub.cache_info()
-    assert info.hits == 1
-    assert info.misses == 1
-    assert info.currsize == 1
-
-    # Clearing the cache forces recomputation
-    sub.cache_clear()
-    assert sub(10, 3) == 7
-    assert calls["count"] == 2
-
-
-# --------------------------------------------------------------------------- #
-# Redis‑backed cache (optional)
-# --------------------------------------------------------------------------- #
-def test_redis_cache_basic(redis_cache):
-    calls = {"count": 0}
-
-    @redis_cache(maxsize=64)
-    def mul(a: int, b: int) -> int:
-        calls["count"] += 1
-        return a * b
-
-    assert mul(2, 5) == 10  # miss
-    assert mul(2, 5) == 10  # hit
-    assert calls["count"] == 1
-
-    info = mul.cache_info()
-    assert info.hits == 1
-    assert info.misses == 1
-    assert info.currsize == 1
-
-    # Clearing should invalidate the cached value
-    mul.cache_clear()
-    assert mul(2, 5) == 10
+    assert add(3, 4) == 7
     assert calls["count"] == 2

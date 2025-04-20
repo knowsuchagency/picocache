@@ -1,7 +1,10 @@
 test:
-    PYTHONPATH=. uv run pytest tests/
+    PYTHONPATH=. uv run pytest -v tests/
 
-build:
+clean:
+    rm -rf dist/*
+
+build: clean
     uv build
 
 publish: test build
