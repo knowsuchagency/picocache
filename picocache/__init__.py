@@ -8,12 +8,29 @@ across workers.
 
 from __future__ import annotations
 
-from .django import DjangoCache
-from .redis import RedisCache
-from .sqlalchemy import SQLAlchemyCache
 from .sqlite import SQLiteCache
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
+__all__ = ["SQLiteCache"]  # Start with the base cache
 
-__all__ = ["SQLAlchemyCache", "RedisCache", "SQLiteCache", "DjangoCache"]
+try:
+    from .django import DjangoCache
+
+    __all__.append("DjangoCache")
+except ImportError:  # pragma: no cover
+    pass
+
+try:
+    from .redis import RedisCache
+
+    __all__.append("RedisCache")
+except ImportError:  # pragma: no cover
+    pass
+
+try:
+    from .sqlalchemy import SQLAlchemyCache
+
+    __all__.append("SQLAlchemyCache")
+except ImportError:  # pragma: no cover
+    pass

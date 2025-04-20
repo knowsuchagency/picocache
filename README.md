@@ -4,8 +4,8 @@
 PicoCache gives you the ergonomics of `functools.lru_cache` while keeping your
 cached values safe across process restarts and even across machines.  
 PicoCache ships with a zero‑dependency **SQLiteCache** that relies only on the
-standard‑library `sqlite3` module.  Additional back‑ends can be enabled via
-*extras*:
+standard‑library `sqlite3` module. Additional back‑ends can be enabled via
+_extras_:
 
 - **SQLAlchemyCache** – persists to any SQL database supported by
   [SQLAlchemy](https://www.sqlalchemy.org/).
