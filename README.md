@@ -1,6 +1,6 @@
-# PicoCache
+# PicoCache: Persistent Memoization
 
-**Persistent, datastore‑backed `lru_cache` for Python.**  
+**A Persistent, datastore‑backed `lru_cache` for Python.**  
 PicoCache gives you the ergonomics of `functools.lru_cache` while keeping your
 cached values safe across process restarts and even across machines.  
 PicoCache ships with a zero‑dependency **SQLiteCache** that relies only on the
