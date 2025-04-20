@@ -2,7 +2,16 @@ from __future__ import annotations
 from typing import Any
 
 import pickle
-from sqlalchemy import Column, MetaData, String, Table, create_engine, select, text
+from sqlalchemy import (
+    Column,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    select,
+    text,
+    func as sqlfunc,
+)
 from sqlalchemy.engine.url import URL
 
 from .base import _BaseCache, _MISSING
@@ -48,7 +57,6 @@ class SQLAlchemyCache(_BaseCache):
             Column("value", String),
         )
         self._metadata.create_all(self._engine)
-        self._size = 0
 
     def _lookup(self, key: str):
         with self._engine.begin() as conn:
@@ -57,36 +65,71 @@ class SQLAlchemyCache(_BaseCache):
             ).fetchone()
             if row is None:
                 return _MISSING
+            self._hits += 1
             return pickle.loads(bytes.fromhex(row.value))
 
     def _store(self, key: str, value: Any):
         pickled = pickle.dumps(value, protocol=self._PROTO).hex()
         with self._engine.begin() as conn:
-            conn.execute(
-                (
-                    self._table.insert()
-                    .values(key=key, value=pickled)
-                    .on_conflict_do_nothing(index_elements=["key"])
-                    if self._engine.dialect.name == "postgresql"
-                    else text(
-                        "INSERT OR IGNORE INTO {} (key, value) VALUES (:key, :value)".format(
-                            self._table.name
-                        )
+            # Use dialect-specific INSERT OR IGNORE / ON CONFLICT
+            dialect = self._engine.dialect.name
+
+            if dialect == "postgresql":
+                # Use ON CONFLICT DO UPDATE for PostgreSQL
+                stmt = self._table.insert().values(key=key, value=pickled)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["key"], set_=dict(value=pickled)
+                )
+            elif dialect == "sqlite":
+                # Use INSERT OR REPLACE for SQLite
+                stmt = text(
+                    "INSERT OR REPLACE INTO {} (key, value) VALUES (:key, :value)".format(
+                        self._table.name
                     )
-                ),
-                {"key": key, "value": pickled},
-            )
-        self._size += 1
+                )
+            else:
+                # Generic fallback: INSERT ON CONFLICT DO UPDATE (might not work on all DBs)
+                # A truly generic solution might need INSERT then UPDATE on error.
+                stmt = text(
+                    "INSERT INTO {} (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = :value".format(
+                        self._table.name
+                    )
+                )
+
+            conn.execute(stmt, {"key": key, "value": pickled})
 
     def _evict_if_needed(self):
-        if self._size <= 10_000:
+        current_size = self._get_current_size()
+        if self._default_maxsize is not None and current_size <= self._default_maxsize:
             return
+        elif current_size <= 10_000:
+            return
+
+        limit = max(
+            1000,
+            (
+                current_size - self._default_maxsize
+                if self._default_maxsize is not None
+                else 1000
+            ),
+        )
+
         with self._engine.begin() as conn:
-            # Use a subquery for LIMIT in DELETE for SQLite compatibility
-            subquery = select(self._table.c.key).limit(1000).subquery()
+            subquery = select(self._table.c.key).limit(limit).subquery()
             conn.execute(
                 self._table.delete().where(
                     self._table.c.key.in_(select(subquery.c.key))
                 )
             )
-        self._size -= 1000
+
+    def _clear(self) -> None:
+        """Clear all items from the cache table."""
+        with self._engine.begin() as conn:
+            conn.execute(self._table.delete())
+
+    def _get_current_size(self) -> int:
+        """Return the number of rows in the cache table."""
+        with self._engine.connect() as conn:
+            count_query = select(sqlfunc.count()).select_from(self._table)
+            result = conn.execute(count_query).scalar()
+            return result if result is not None else 0

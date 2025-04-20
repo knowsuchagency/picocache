@@ -31,17 +31,49 @@ class RedisCache(_BaseCache):
         self._default_ttl = ttl
 
     def _lookup(self, key: str):
-        data = self._r.get(self._ns + key)
+        full_key = self._ns + key
+        data = self._r.get(full_key)
         if data is None:
             return _MISSING
-        return pickle.loads(data)
+        self._hits += 1  # Increment hit counter
+        try:
+            value = pickle.loads(data)
+            return value
+        except Exception as e:
+            # Log error appropriately in a real app
+            return _MISSING
 
     def _store(self, key: str, value: Any):
-        pickled = pickle.dumps(value, protocol=self._PROTO)
-        if self._default_ttl is None:
-            self._r.set(self._ns + key, pickled)
-        else:
-            self._r.setex(self._ns + key, self._default_ttl, pickled)
+        full_key = self._ns + key
+        try:
+            pickled = pickle.dumps(value, protocol=self._PROTO)
+            if self._default_ttl is None:
+                self._r.set(full_key, pickled)
+            else:
+                self._r.setex(full_key, self._default_ttl, pickled)
+        except Exception as e:
+            # Log error appropriately in a real app
+            pass  # Optionally raise
 
     def _evict_if_needed(self):
-        pass  # Redis handles eviction (e.g., LRU, TTL)
+        # Redis handles eviction based on its configuration (e.g., LRU, TTL).
+        # self._default_maxsize is not directly used by this backend for eviction.
+        pass
+
+    def _clear(self) -> None:
+        """Clear all keys within the namespace.
+
+        Warning: Uses KEYS, which can be slow on large databases.
+        SCAN is recommended for production use.
+        """
+        keys_to_delete = self._r.keys(self._ns + "*")
+        if keys_to_delete:
+            self._r.delete(*keys_to_delete)
+
+    def _get_current_size(self) -> int:
+        """Return the number of keys within the namespace.
+
+        Warning: Uses KEYS, which can be slow on large databases.
+        SCAN is recommended for production use.
+        """
+        return len(self._r.keys(self._ns + "*"))

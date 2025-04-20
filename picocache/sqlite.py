@@ -53,6 +53,7 @@ class SQLiteCache(_BaseCache):
                     (time.time(), key),
                 )
                 self._conn.commit()
+                self._hits += 1  # Increment hit counter
                 return pickle.loads(row[0])
             finally:
                 cursor.close()
@@ -72,10 +73,31 @@ class SQLiteCache(_BaseCache):
                 cursor.close()
 
     def _evict_if_needed(self) -> None:
-        # For simplicity and consistency with RedisCache, we won't implement
-        # size-based eviction in the SQLite backend itself. The in-memory
-        # lru_cache provided by _BaseCache handles maxsize limiting.
+        # Base cache handles maxsize via self._default_maxsize if needed
+        # for cache_info, but actual eviction logic isn't implemented here.
+        # Could implement LRU based on last_accessed or simple size cap.
         pass
+
+    def _clear(self) -> None:
+        """Clear all items from the cache table."""
+        with self._lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute(f"DELETE FROM {self._TABLE_NAME}")
+                self._conn.commit()
+            finally:
+                cursor.close()
+
+    def _get_current_size(self) -> int:
+        """Return the number of rows in the cache table."""
+        with self._lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {self._TABLE_NAME}")
+                count = cursor.fetchone()[0]
+                return count
+            finally:
+                cursor.close()
 
     def __del__(self) -> None:
         if hasattr(self, "_conn") and self._conn:

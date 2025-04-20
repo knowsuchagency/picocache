@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Tuple
 import functools
 import pickle
 import threading
+from abc import ABC, abstractmethod
 
 from .utils import _copy_metadata, _make_key
 
@@ -15,109 +16,139 @@ class _Missing:
 _MISSING = _Missing()
 
 
-class _BaseCache:
-    """Shared functionality for SQLAlchemyCache & RedisCache."""
+# Use a standard structure similar to functools.CacheInfo
+# Backends will provide the data for this.
+class CacheInfo:
+    def __init__(self, hits: int, misses: int, maxsize: int | None, currsize: int):
+        self.hits = hits
+        self.misses = misses
+        self.maxsize = maxsize
+        self.currsize = currsize
+
+    def __repr__(self):
+        return f"CacheInfo(hits={self.hits}, misses={self.misses}, maxsize={self.maxsize}, currsize={self.currsize})"
+
+
+class _BaseCache(ABC):
+    """Shared functionality for backend caches."""
 
     _PROTO = pickle.HIGHEST_PROTOCOL
 
     def __init__(
         self, *, default_maxsize: int | None = None, default_typed: bool = False
     ) -> None:
+        # Note: default_maxsize is now used by cache_info and might be
+        # used by specific backend implementations for eviction.
         self._default_maxsize = default_maxsize
         self._default_typed = default_typed
+        # Simple in-memory counters (won't persist across instances/restarts)
+        self._hits = 0
+        self._misses = 0
 
     def __call__(
         self, maxsize: int | None | Ellipsis = ..., typed: bool | Ellipsis = ...
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # noqa: D401,E501
-        """Return a *decorator* with caching parameters (mirrors ``lru_cache``).
+        """Return a *decorator* with caching parameters.
 
-        ``maxsize``/``typed`` override defaults supplied to ``__init__``.  Using
-        the ellipsis literal ``...`` indicates *use default* so the signature is
-        backward compatible with plain ``functools.lru_cache`` (where the first
-        positional arg may be the *function* when decorator is used without
-        parentheses)."""
+        ``maxsize`` might be used by specific backends for eviction policies.
+        ``typed`` controls key generation. Using the ellipsis literal ``...``
+        indicates *use default*."""
 
         if callable(maxsize) and typed is ...:  # maxsize is actually the func
             func = maxsize  # type: ignore[assignment]
+            # Pass the default maxsize potentially for backend use
             return self._build_wrapper(func, self._default_maxsize, self._default_typed)
 
+        # Store actual maxsize/typed for potential backend use
         actual_maxsize = self._default_maxsize if maxsize is ... else maxsize  # type: ignore[assignment]
         actual_typed = self._default_typed if typed is ... else typed  # type: ignore[assignment]
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            # Pass actual maxsize potentially for backend use
             return self._build_wrapper(func, actual_maxsize, actual_typed)
 
         return decorator
 
+    @abstractmethod
     def _lookup(self, key: str) -> Any | _MISSING:  # noqa: D401
+        """Lookup key in the persistent backend. MUST increment self._hits on hit."""
         raise NotImplementedError
 
+    @abstractmethod
     def _store(self, key: str, value: Any) -> None:  # noqa: D401
+        """Store key/value in the persistent backend."""
         raise NotImplementedError
 
     def _evict_if_needed(self) -> None:  # noqa: D401
+        """Perform eviction in the persistent backend if necessary."""
+        # Backends are responsible for their own eviction logic (size, TTL, etc.)
+        pass  # Base implementation does nothing
+
+    @abstractmethod
+    def _get_current_size(self) -> int:
+        """Return the current number of items in the cache backend."""
         raise NotImplementedError
+
+    @abstractmethod
+    def _clear(self) -> None:
+        """Clear all items from the cache backend."""
+        raise NotImplementedError
+
+    # --- Public wrapper methods ---
+
+    def cache_info(self) -> CacheInfo:
+        """Return cache statistics."""
+        return CacheInfo(
+            hits=self._hits,
+            misses=self._misses,
+            maxsize=self._default_maxsize,  # Report configured maxsize
+            currsize=self._get_current_size(),
+        )
+
+    def cache_clear(self) -> None:
+        """Clear the cache and reset statistics."""
+        with threading.Lock():  # Ensure atomicity for clear + stat reset
+            self._clear()
+            self._hits = 0
+            self._misses = 0
 
     def _build_wrapper(
         self, func: Callable[..., Any], maxsize: int | None, typed: bool
     ) -> Callable[..., Any]:
-        memory_cache = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
-        lock = threading.RLock()
+        # maxsize is stored in self._default_maxsize, potentially used by backend
+        lock = threading.RLock()  # Use RLock for potential reentrancy
 
-        # Check if the backend instance uses its own TTL mechanism
-        # DjangoCache uses _default_timeout, RedisCache uses _default_ttl
-        backend_has_ttl = (
-            hasattr(self, "_default_timeout")
-            and getattr(self, "_default_timeout") is not None
-            or hasattr(self, "_default_ttl")
-            and getattr(self, "_default_ttl") is not None
-        )
+        # Keep track of the specific maxsize for this wrapper instance
+        # (though it's mainly used for cache_info reporting now)
+        wrapper_maxsize = maxsize
 
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
             key = _make_key(args, kwargs, typed)
 
-            # If backend manages TTL, bypass in-memory cache lookup
-            if not backend_has_ttl:
-                try:
-                    return memory_cache(*args, **kwargs)
-                except Exception:  # noqa: BLE001 – ignore & fall‑through to datastore
-                    pass
-
             with lock:
-                result = self._lookup(key)
+                # 1. Check persistent cache
+                result = self._lookup(key)  # _lookup should increment self._hits
                 if result is not _MISSING:
-                    # If backend manages TTL, don't prime the in-memory cache
-                    if not backend_has_ttl:
-                        memory_cache(*args, **kwargs)  # prime but ignore return
                     return result
 
+                # Cache miss if we reach here
+                self._misses += 1
+
+                # 2. Cache miss: call original function
                 result = func(*args, **kwargs)
-                self._evict_if_needed()
+
+                # 3. Perform eviction if needed (backend-specific)
+                # Eviction might depend on the wrapper_maxsize passed
+                self._evict_if_needed()  # TODO: Potentially pass wrapper_maxsize?
+
+                # 4. Store result in persistent cache
                 self._store(key, result)
-                # If backend manages TTL, don't prime the in-memory cache
-                if not backend_has_ttl:
-                    memory_cache(*args, **kwargs)
+
                 return result
 
-        # Expose cache_info and cache_clear from the persistent backend if backend handles TTL,
-        # otherwise use the in-memory lru_cache's methods.
-        # Note: Persistent backends might need to implement these.
-        if backend_has_ttl:
-            # TODO: Implement cache_info/cache_clear on TTL backends if needed
-            # For now, provide dummy methods or raise NotImplementedError
-            def cache_info():
-                # Placeholder: Actual implementation would need backend interaction
-                return memory_cache.cache_info()  # Or fetch from backend
+        # Assign the instance methods directly to the wrapper
+        wrapper.cache_info = self.cache_info  # type: ignore[attr-defined]
+        wrapper.cache_clear = self.cache_clear  # type: ignore[attr-defined]
 
-            def cache_clear():
-                # Placeholder: Actual implementation would need backend interaction
-                pass  # Or trigger backend clear
-
-            wrapper.cache_info = cache_info  # type: ignore[attr-defined]
-            wrapper.cache_clear = cache_clear  # type: ignore[attr-defined]
-
-        else:
-            wrapper.cache_info = memory_cache.cache_info  # type: ignore[attr-defined]
-            wrapper.cache_clear = memory_cache.cache_clear  # type: ignore[attr-defined]
         return wrapper

@@ -12,6 +12,7 @@ import os
 import django
 from django.conf import settings
 import pytest
+import time
 
 # Configure Django settings before importing DjangoCache
 if not settings.configured:
@@ -31,15 +32,25 @@ if not settings.configured:
 from picocache import DjangoCache
 
 
-def test_django_cache_basic():
+# Fixture to provide a DjangoCache instance
+@pytest.fixture
+def cache():
+    # Return the class itself or a default instance if needed by tests
+    # For tests that need specific setup like timeout, they instantiate directly
+    return DjangoCache()
+
+
+def test_django_cache_basic(cache):
     """Test that DjangoCache works correctly with basic operations."""
-    cache = DjangoCache()
     calls = {"count": 0}
 
     @cache
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
+
+    add.cache_clear()
+    calls["count"] = 0
 
     # First call - should be a miss
     assert add(3, 4) == 7
@@ -58,39 +69,52 @@ def test_django_cache_basic():
     add.cache_clear()
     assert add(3, 4) == 7
     assert calls["count"] == 2
+    info_after_clear = add.cache_info()
+    assert info_after_clear.hits == 0
+    assert info_after_clear.misses == 1
 
     # Different arguments should cause a cache miss
     assert add(5, 6) == 11
     assert calls["count"] == 3
+    info_after_diff_args = add.cache_info()
+    assert info_after_diff_args.hits == 0
+    assert info_after_diff_args.misses == 2
 
 
 def test_django_cache_custom_timeout():
-    """Test that DjangoCache works with custom timeout."""
-    # Using a very short timeout for testing
+    """Test DjangoCache with a specific timeout."""
     cache_deco = DjangoCache(timeout=1)
     calls = {"count": 0}
 
-    @cache_deco(maxsize=32)
+    @cache_deco
     def add(a: int, b: int) -> int:
         calls["count"] += 1
         return a + b
 
-    # First call
-    assert add(3, 4) == 7
+    # Clear before first call
+    add.cache_clear()
+    calls["count"] = 0
+
+    # 1. First call (Miss)
+    assert add(1, 2) == 3
     assert calls["count"] == 1
 
-    # Still cached
-    assert add(3, 4) == 7
+    # 2. Second call (Hit - within timeout)
+    assert add(1, 2) == 3
     assert calls["count"] == 1
+    info = add.cache_info()
+    assert info.hits == 1
+    assert info.misses == 1
 
-    # Sleep to let cache expire
-    import time
+    # 3. Wait for timeout to expire
+    time.sleep(1.5)
 
-    time.sleep(1.1)  # Slightly longer than timeout
-
-    # Should be a miss now
-    assert add(3, 4) == 7
+    # 4. Third call (Miss - after timeout)
+    assert add(1, 2) == 3
     assert calls["count"] == 2
+    info_after_timeout = add.cache_info()
+    assert info_after_timeout.hits == 1
+    assert info_after_timeout.misses == 2
 
 
 def test_django_cache_custom_alias():
@@ -109,7 +133,14 @@ def test_django_cache_custom_alias():
         calls["count"] += 1
         return a + b
 
+    add.cache_clear()
+    calls["count"] = 0
+
     # Check basic caching works
     assert add(3, 4) == 7
     assert add(3, 4) == 7
     assert calls["count"] == 1
+    info = add.cache_info()
+    assert info.hits == 1
+    assert info.misses == 1
+    assert info.currsize == 1
