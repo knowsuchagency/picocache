@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from .sqlite import SQLiteCache
 
-__version__ = "0.10.1"
+__version__ = "0.10.2"
 
 __all__ = ["SQLiteCache"]  # Start with the base cache
 
