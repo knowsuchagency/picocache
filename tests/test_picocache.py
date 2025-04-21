@@ -135,7 +135,7 @@ def test_basic_caching(cache):
         return a + b
 
     # Clear cache *after* decoration but *before* first call
-    add.clear()
+    add.cache_clear()
     # Reset calls counter after clear, before test logic
     calls["count"] = 0
 

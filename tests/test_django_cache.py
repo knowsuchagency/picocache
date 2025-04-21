@@ -133,7 +133,7 @@ def test_django_cache_custom_alias():
         calls["count"] += 1
         return a + b
 
-    add.clear()
+    add.cache_clear()
     calls["count"] = 0
 
     # Check basic caching works

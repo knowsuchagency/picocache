@@ -149,6 +149,6 @@ class _BaseCache(ABC):
 
         # Assign the instance methods directly to the wrapper
         wrapper.cache_info = self.cache_info  # type: ignore[attr-defined]
-        wrapper.clear = self.clear  # type: ignore[attr-defined]
+        wrapper.cache_clear = wrapper.clear = self.clear  # type: ignore[attr-defined]
 
         return wrapper
