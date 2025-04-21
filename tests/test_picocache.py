@@ -4,7 +4,7 @@ Parametrised integration test for *all* picocache back‑ends.
 The single test below is executed four times—once each for SQLiteCache
 (stdlib, no deps), SQLAlchemyCache, RedisCache, and DjangoCache—verifying that every
 implementation behaves like `functools.lru_cache` with respect to hits,
-misses, `cache_info`, and `cache_clear`.
+misses, `cache_info`, and `clear`.
 
 * SQLiteCache uses a temporary on‑disk database that is deleted afterwards.
 * SQLAlchemyCache uses an in‑memory SQLite URL.
@@ -125,7 +125,7 @@ def cache(request) -> Iterator[Tuple[str, Callable[[Callable[..., Any]], Any]]]:
 def test_basic_caching(cache):
     backend_name, cache_deco = cache
     # Ensure a clean slate for each backend test run
-    # Need to access cache_clear via the decorated function after decoration
+    # Need to access clear via the decorated function after decoration
     calls = {"count": 0}
 
     # simple math function so result is deterministic & hashable
@@ -135,7 +135,7 @@ def test_basic_caching(cache):
         return a + b
 
     # Clear cache *after* decoration but *before* first call
-    add.cache_clear()
+    add.clear()
     # Reset calls counter after clear, before test logic
     calls["count"] = 0
 
@@ -155,7 +155,7 @@ def test_basic_caching(cache):
     assert info.currsize >= 1 or info.currsize == -1  # Allow -1 for unknown size
 
     # clearing should force recomputation
-    add.cache_clear()
+    add.clear()
     assert add(3, 4) == 7
     assert calls["count"] == 2
     info_after_clear = add.cache_info()

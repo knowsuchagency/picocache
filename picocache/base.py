@@ -105,7 +105,7 @@ class _BaseCache(ABC):
             currsize=self._get_current_size(),
         )
 
-    def cache_clear(self) -> None:
+    def clear(self) -> None:
         """Clear the cache and reset statistics."""
         with threading.Lock():  # Ensure atomicity for clear + stat reset
             self._clear()
@@ -149,6 +149,6 @@ class _BaseCache(ABC):
 
         # Assign the instance methods directly to the wrapper
         wrapper.cache_info = self.cache_info  # type: ignore[attr-defined]
-        wrapper.cache_clear = self.cache_clear  # type: ignore[attr-defined]
+        wrapper.clear = self.clear  # type: ignore[attr-defined]
 
         return wrapper

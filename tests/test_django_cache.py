@@ -49,7 +49,7 @@ def test_django_cache_basic(cache):
         calls["count"] += 1
         return a + b
 
-    add.cache_clear()
+    cache.clear()
     calls["count"] = 0
 
     # First call - should be a miss
@@ -66,7 +66,7 @@ def test_django_cache_basic(cache):
     assert info.currsize == 1
 
     # Clearing should force recomputation
-    add.cache_clear()
+    add.clear()
     assert add(3, 4) == 7
     assert calls["count"] == 2
     info_after_clear = add.cache_info()
@@ -92,7 +92,7 @@ def test_django_cache_custom_timeout():
         return a + b
 
     # Clear before first call
-    add.cache_clear()
+    add.clear()
     calls["count"] = 0
 
     # 1. First call (Miss)
@@ -133,7 +133,7 @@ def test_django_cache_custom_alias():
         calls["count"] += 1
         return a + b
 
-    add.cache_clear()
+    add.clear()
     calls["count"] = 0
 
     # Check basic caching works

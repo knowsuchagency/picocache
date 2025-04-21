@@ -122,7 +122,7 @@ Returns a decorator that memoises the target function.
 The wrapped function gains:
 
 - **`.cache_info()`** → `namedtuple(hits, misses, currsize, maxsize)`
-- **`.cache_clear()`** → empties the persistent store for that function.
+- **`.clear()`** → empties the persistent store for that function.
 
 ---
 
