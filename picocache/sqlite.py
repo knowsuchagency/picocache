@@ -12,15 +12,16 @@ from .base import _BaseCache, _MISSING
 class SQLiteCache(_BaseCache):
     """Persistent cache backed by SQLite."""
 
-    _TABLE_NAME = "picocache"
 
     def __init__(
         self,
         db_path: str = "picocache.db",
+        table_name: str = "picocache",
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
         self._db_path = db_path
+        self._table_name = table_name
         self._lock = threading.Lock()
         self._conn = self._init_db()
 
@@ -28,7 +29,7 @@ class SQLiteCache(_BaseCache):
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
         with conn:
             conn.execute(
-                f"""CREATE TABLE IF NOT EXISTS {self._TABLE_NAME} (
+                f"""CREATE TABLE IF NOT EXISTS {self._table_name} (
                     key TEXT PRIMARY KEY,
                     value BLOB,
                     last_accessed REAL
@@ -41,7 +42,7 @@ class SQLiteCache(_BaseCache):
             cursor = self._conn.cursor()
             try:
                 cursor.execute(
-                    f"SELECT value FROM {self._TABLE_NAME} WHERE key = ?", (key,)
+                    f"SELECT value FROM {self._table_name} WHERE key = ?", (key,)
                 )
                 row = cursor.fetchone()
                 if row is None:
@@ -49,7 +50,7 @@ class SQLiteCache(_BaseCache):
 
                 # Update last_accessed time on lookup
                 cursor.execute(
-                    f"UPDATE {self._TABLE_NAME} SET last_accessed = ? WHERE key = ?",
+                    f"UPDATE {self._table_name} SET last_accessed = ? WHERE key = ?",
                     (time.time(), key),
                 )
                 self._conn.commit()
@@ -66,7 +67,7 @@ class SQLiteCache(_BaseCache):
                 # Update last_accessed time on store as well
                 current_time = time.time()
                 cursor.execute(
-                    f"""INSERT OR REPLACE INTO {self._TABLE_NAME}
+                    f"""INSERT OR REPLACE INTO {self._table_name}
                         (key, value, last_accessed) VALUES (?, ?, ?)""",
                     (key, pickled_value, current_time),
                 )
@@ -97,7 +98,7 @@ class SQLiteCache(_BaseCache):
             try:
                 # Find the keys of the `limit` least recently accessed items
                 cursor.execute(
-                    f"SELECT key FROM {self._TABLE_NAME} ORDER BY last_accessed ASC LIMIT ?",
+                    f"SELECT key FROM {self._table_name} ORDER BY last_accessed ASC LIMIT ?",
                     (limit,),
                 )
                 keys_to_delete = [row[0] for row in cursor.fetchall()]
@@ -107,7 +108,7 @@ class SQLiteCache(_BaseCache):
                     # Use placeholders correctly for a list of values
                     placeholders = ",".join("?" * len(keys_to_delete))
                     cursor.execute(
-                        f"DELETE FROM {self._TABLE_NAME} WHERE key IN ({placeholders})",
+                        f"DELETE FROM {self._table_name} WHERE key IN ({placeholders})",
                         keys_to_delete,
                     )
                     self._conn.commit()
@@ -119,7 +120,7 @@ class SQLiteCache(_BaseCache):
         with self._lock:
             cursor = self._conn.cursor()
             try:
-                cursor.execute(f"DELETE FROM {self._TABLE_NAME}")
+                cursor.execute(f"DELETE FROM {self._table_name}")
                 self._conn.commit()
             finally:
                 cursor.close()
@@ -129,7 +130,7 @@ class SQLiteCache(_BaseCache):
         with self._lock:
             cursor = self._conn.cursor()
             try:
-                cursor.execute(f"SELECT COUNT(*) FROM {self._TABLE_NAME}")
+                cursor.execute(f"SELECT COUNT(*) FROM {self._table_name}")
                 count = cursor.fetchone()[0]
                 return count
             finally:

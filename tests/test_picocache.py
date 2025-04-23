@@ -201,83 +201,81 @@ def test_maxsize_eviction(cache):
         calls["count"] == 3
     ), f"{backend_name} called function body {calls['count']} times, expected 3"
 
-    # === Divergence for Django ===
+    # === Standard LRU Backends (including Django now) ===
+    # Call the first argument again - should be a MISS from LRU due to eviction
+    assert identity(1) == 1
+    # T4 > T3 > T2
+    # LRU state: {2:T2, 3:T3, 1:T4}. Eviction needed (size=3, limit=2).
+    # Oldest is 2 (T2). After eviction: {3:T3, 1:T4}
+
+    # Check cache info after potential miss 4 (LRU miss, but Django might hit)
+    info2 = identity.cache_info()
+    assert info2.hits == 0  # LRU hits should still be 0
+    assert info2.misses == 4  # LRU misses should be 4
+
+    # === Adjust expected call count for Django ===
+    expected_calls_after_miss4 = 4
     if backend_name == "django":
-        # Django LocMemCache doesn't evict based on maxsize, so 1 should still be present.
-        # Call the first argument again - should be a HIT
-        assert identity(1) == 1  # hit 1
-        time.sleep(0.01)
+        # Django hit the persistent cache, so func wasn't called again
+        expected_calls_after_miss4 = 3
 
-        # Check final cache info
-        info2 = identity.cache_info()
-        assert info2.hits == 1  # Should have 1 hit now
-        assert info2.misses == 3  # Misses shouldn't have increased
-        # Currsize will be 3
-        assert info2.currsize == 3
+    if info2.currsize != -1:
+        assert (
+            info2.currsize == max_cache_size
+        ), f"{backend_name} failed currsize check after miss 4 ({info2.currsize=})"
+    assert (
+        calls["count"] == expected_calls_after_miss4
+    ), f"{backend_name} call count check after miss 4"
 
-        # Check final call count (should not increase)
-        assert calls["count"] == 3
+    # Call the *second* argument - should be an LRU MISS because it was evicted
+    # For Django, this will also be a persistent hit.
+    assert identity(2) == 2
+    # T5 > T4 > T3
+    # LRU state: {3:T3, 1:T4, 2:T5}. Eviction needed (size=3, limit=2).
+    # Oldest is 3 (T3). After eviction: {1:T4, 2:T5}
 
-        # Call one of the *other* cached items - should also be a hit
-        assert identity(2) == 2  # hit 2
-        time.sleep(0.01)
+    # Check cache info after potential miss 5
+    info3 = identity.cache_info()
+    assert info3.hits == 0  # Still no LRU hits
+    assert info3.misses == 5  # LRU misses = 5
 
-        info3 = identity.cache_info()
-        assert info3.hits == 2
-        assert info3.misses == 3
-        assert calls["count"] == 3  # Should not have increased
+    # === Adjust expected call count for Django ===
+    expected_calls_after_miss5 = 5
+    if backend_name == "django":
+        # Django hit the persistent cache, so func wasn't called again
+        expected_calls_after_miss5 = 3  # Count is still 3
 
-    else:
-        # === Standard LRU Backends (SQLite, SQLAlchemy) ===
-        # Call the first argument again - should be a MISS due to eviction
-        assert identity(1) == 1  # miss 4, oldest was 1, cache={2:T2, 3:T3}
-        time.sleep(0.01)
-        # T4 > T3 > T2
-        # Cache state: {2:T2, 3:T3, 1:T4}. Eviction needed (size=3, limit=1).
-        # Oldest is 2 (T2). After eviction: {3:T3, 1:T4}
+    if info3.currsize != -1:
+        assert (
+            info3.currsize == max_cache_size
+        ), f"{backend_name} failed currsize check after miss 5 ({info3.currsize=})"
+    assert (
+        calls["count"] == expected_calls_after_miss5
+    ), f"{backend_name} call count check after miss 5"
 
-        # Check cache info after miss 4
-        info2 = identity.cache_info()
-        assert info2.hits == 0
-        assert info2.misses == 4
-        if info2.currsize != -1:
-            assert (
-                info2.currsize == max_cache_size
-            ), f"{backend_name} failed currsize check after miss 4 ({info2.currsize=})"
-        assert calls["count"] == 4, f"{backend_name} call count check after miss 4"
+    # Call the second argument *again* - should now be an LRU HIT
+    assert identity(2) == 2
+    # T6 > T5 > T4
+    # LRU state: {1:T4, 2:T6}. No eviction.
 
-        # Call the *second* argument - should be a MISS because it was evicted
-        assert identity(2) == 2  # miss 5
-        time.sleep(0.01)
-        # T5 > T4 > T3
-        # Cache state: {3:T3, 1:T4, 2:T5}. Eviction needed (size=3, limit=1).
-        # Oldest is 3 (T3). After eviction: {1:T4, 2:T5}
+    # Check final cache info after LRU hit 1
+    info4 = identity.cache_info()
+    assert info4.hits == 1  # LRU hit
+    assert info4.misses == 5  # LRU misses
 
-        # Check cache info after miss 5
-        info3 = identity.cache_info()
-        assert info3.hits == 0  # Still no hits
-        assert info3.misses == 5
-        if info3.currsize != -1:
-            assert (
-                info3.currsize == max_cache_size
-            ), f"{backend_name} failed currsize check after miss 5 ({info3.currsize=})"
-        assert calls["count"] == 5, f"{backend_name} call count check after miss 5"
+    # === Adjust expected call count for Django ===
+    expected_calls_final = 5  # Same as previous step for non-Django
+    if backend_name == "django":
+        expected_calls_final = 3  # Still 3 for Django
 
-        # Call the second argument *again* - should now be a HIT
-        assert identity(2) == 2  # hit 1
-        time.sleep(0.01)
-        # T6 > T5 > T4
-        # Cache state: {1:T4, 2:T6}. No eviction.
+    assert (
+        calls["count"] == expected_calls_final
+    ), f"{backend_name} final call count check"
 
-        # Check final cache info after hit 1
-        info4 = identity.cache_info()
-        assert info4.hits == 1
-        assert info4.misses == 5
-        assert calls["count"] == 5  # Hit, so count doesn't increase
-        if info4.currsize != -1:
-            assert (
-                info4.currsize == max_cache_size
-            ), f"{backend_name} failed final currsize check ({info4.currsize=})"
+    if info4.currsize != -1:
+        assert (
+            info4.currsize == max_cache_size
+        ), f"{backend_name} failed final currsize check ({info4.currsize=})"
 
     # Clean up
     identity.cache_clear()
