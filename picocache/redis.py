@@ -62,29 +62,29 @@ class RedisCache(_BaseCache):
                 pipe.zadd(self._lru_key, {full_key: time.time()})
             pipe.execute()
 
-            # Eviction logic using wrapper_maxsize
-            if wrapper_maxsize is not None and wrapper_maxsize > 0:
-                # Check size *after* adding the new item to the tracker
-                current_size = self._r.zcard(self._lru_key)
-                if current_size > wrapper_maxsize:
-                    # Number of items to remove
-                    num_to_remove = current_size - wrapper_maxsize
-                    # Get the keys of the oldest items (lowest scores)
-                    keys_to_remove = self._r.zrange(self._lru_key, 0, num_to_remove - 1)
-                    if keys_to_remove:
-                        # Use pipeline to remove data keys and LRU entries
-                        evict_pipe = self._r.pipeline()
-                        evict_pipe.delete(*keys_to_remove)
-                        evict_pipe.zrem(self._lru_key, *keys_to_remove)
-                        evict_pipe.execute()
+            # Eviction logic is now handled by _evict_if_needed
 
         except Exception as e:
             # Log error appropriately in a real app
             pass  # Optionally raise
 
     def _evict_if_needed(self, wrapper_maxsize: int | None = None):
-        # Eviction is now handled proactively in _store based on _default_maxsize
-        pass
+        # Eviction logic using wrapper_maxsize
+        if wrapper_maxsize is not None and wrapper_maxsize > 0:
+            # Check size *after* the new item has potentially been added by _store
+            current_size = self._r.zcard(self._lru_key)
+            if current_size > wrapper_maxsize:
+                # Number of items to remove
+                num_to_remove = current_size - wrapper_maxsize
+                # Get the keys of the oldest items (lowest scores)
+                # We want the oldest, so range from 0 up to num_to_remove - 1
+                keys_to_remove = self._r.zrange(self._lru_key, 0, num_to_remove - 1)
+                if keys_to_remove:
+                    # Use pipeline to remove data keys and LRU entries
+                    evict_pipe = self._r.pipeline()
+                    evict_pipe.delete(*keys_to_remove)
+                    evict_pipe.zrem(self._lru_key, *keys_to_remove)
+                    evict_pipe.execute()
 
     def _clear(self) -> None:
         """Clear all keys within the namespace using SCAN."""
