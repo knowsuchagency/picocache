@@ -55,7 +55,7 @@ class RedisCache(_BaseCache):
             # Log error appropriately in a real app
             pass  # Optionally raise
 
-    def _evict_if_needed(self):
+    def _evict_if_needed(self, wrapper_maxsize: int | None = None):
         # Redis handles eviction based on its configuration (e.g., LRU, TTL).
         # self._default_maxsize is not directly used by this backend for eviction.
         pass

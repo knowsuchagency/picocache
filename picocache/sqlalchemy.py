@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any
 
 import pickle
+import time
 from sqlalchemy import (
     Column,
     MetaData,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     select,
     text,
     func as sqlfunc,
+    Float,
 )
 from sqlalchemy.engine.url import URL
 
@@ -55,6 +57,7 @@ class SQLAlchemyCache(_BaseCache):
             self._metadata,
             Column("key", String(64), primary_key=True),
             Column("value", String),
+            Column("last_accessed", Float),
         )
         self._metadata.create_all(self._engine)
 
@@ -65,62 +68,72 @@ class SQLAlchemyCache(_BaseCache):
             ).fetchone()
             if row is None:
                 return _MISSING
+            update_stmt = (
+                self._table.update()
+                .where(self._table.c.key == key)
+                .values(last_accessed=time.time())
+            )
+            conn.execute(update_stmt)
             self._hits += 1
             return pickle.loads(bytes.fromhex(row.value))
 
     def _store(self, key: str, value: Any):
         pickled = pickle.dumps(value, protocol=self._PROTO).hex()
+        current_time = time.time()
         with self._engine.begin() as conn:
-            # Use dialect-specific INSERT OR IGNORE / ON CONFLICT
             dialect = self._engine.dialect.name
 
             if dialect == "postgresql":
-                # Use ON CONFLICT DO UPDATE for PostgreSQL
-                stmt = self._table.insert().values(key=key, value=pickled)
+                stmt = self._table.insert().values(
+                    key=key, value=pickled, last_accessed=current_time
+                )
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["key"], set_=dict(value=pickled)
+                    index_elements=["key"],
+                    set_=dict(value=pickled, last_accessed=current_time),
                 )
             elif dialect == "sqlite":
-                # Use INSERT OR REPLACE for SQLite
                 stmt = text(
-                    "INSERT OR REPLACE INTO {} (key, value) VALUES (:key, :value)".format(
+                    "INSERT OR REPLACE INTO {} (key, value, last_accessed) VALUES (:key, :value, :last_accessed)".format(
                         self._table.name
                     )
                 )
             else:
-                # Generic fallback: INSERT ON CONFLICT DO UPDATE (might not work on all DBs)
-                # A truly generic solution might need INSERT then UPDATE on error.
                 stmt = text(
-                    "INSERT INTO {} (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = :value".format(
+                    "INSERT INTO {} (key, value, last_accessed) VALUES (:key, :value, :last_accessed) "
+                    "ON CONFLICT(key) DO UPDATE SET value = :value, last_accessed = :last_accessed".format(
                         self._table.name
                     )
                 )
 
-            conn.execute(stmt, {"key": key, "value": pickled})
+            conn.execute(
+                stmt, {"key": key, "value": pickled, "last_accessed": current_time}
+            )
 
-    def _evict_if_needed(self):
+    def _evict_if_needed(self, wrapper_maxsize: int | None = None):
+        if wrapper_maxsize is None:
+            return
+
         current_size = self._get_current_size()
-        if self._default_maxsize is not None and current_size <= self._default_maxsize:
-            return
-        elif current_size <= 10_000:
+
+        if current_size <= wrapper_maxsize:
             return
 
-        limit = max(
-            1000,
-            (
-                current_size - self._default_maxsize
-                if self._default_maxsize is not None
-                else 1000
-            ),
-        )
+        limit = current_size - wrapper_maxsize
+        if limit <= 0:
+            return
 
         with self._engine.begin() as conn:
-            subquery = select(self._table.c.key).limit(limit).subquery()
-            conn.execute(
-                self._table.delete().where(
-                    self._table.c.key.in_(select(subquery.c.key))
-                )
+            keys_to_delete_subquery = (
+                select(self._table.c.key)
+                .order_by(self._table.c.last_accessed.asc())
+                .limit(limit)
+                .subquery()
             )
+
+            delete_stmt = self._table.delete().where(
+                self._table.c.key.in_(select(keys_to_delete_subquery.c.key))
+            )
+            conn.execute(delete_stmt)
 
     def _clear(self) -> None:
         """Clear all items from the cache table."""

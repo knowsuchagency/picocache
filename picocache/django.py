@@ -65,7 +65,7 @@ class DjangoCache(_BaseCache):
             )
             pass  # Logged the error, skip caching
 
-    def _evict_if_needed(self) -> None:
+    def _evict_if_needed(self, wrapper_maxsize: int | None = None) -> None:
         # Django's cache backend handles eviction based on its own policies
         # (e.g., LRU, max entries, timeout).
         # self._default_maxsize is not directly used by this backend.

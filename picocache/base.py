@@ -79,7 +79,9 @@ class _BaseCache(ABC):
         """Store key/value in the persistent backend."""
         raise NotImplementedError
 
-    def _evict_if_needed(self) -> None:  # noqa: D401
+    def _evict_if_needed(
+        self, wrapper_maxsize: int | None = None
+    ) -> None:  # noqa: D401
         """Perform eviction in the persistent backend if necessary."""
         # Backends are responsible for their own eviction logic (size, TTL, etc.)
         pass  # Base implementation does nothing
@@ -97,11 +99,12 @@ class _BaseCache(ABC):
     # --- Public wrapper methods ---
 
     def cache_info(self) -> CacheInfo:
-        """Return cache statistics."""
+        # This is the cache_info for the *cache object* itself.
+        # It reports the default_maxsize configured for the object.
         return CacheInfo(
             hits=self._hits,
             misses=self._misses,
-            maxsize=self._default_maxsize,  # Report configured maxsize
+            maxsize=self._default_maxsize,  # Reports the *default* maxsize
             currsize=self._get_current_size(),
         )
 
@@ -138,17 +141,28 @@ class _BaseCache(ABC):
                 # 2. Cache miss: call original function
                 result = func(*args, **kwargs)
 
-                # 3. Perform eviction if needed (backend-specific)
-                # Eviction might depend on the wrapper_maxsize passed
-                self._evict_if_needed()  # TODO: Potentially pass wrapper_maxsize?
-
-                # 4. Store result in persistent cache
+                # 3. Store result in persistent cache BEFORE checking eviction
                 self._store(key, result)
+
+                # 4. Perform eviction if needed (backend-specific)
+                # Called AFTER store, so current_size includes the new item.
+                self._evict_if_needed(wrapper_maxsize)
 
                 return result
 
-        # Assign the instance methods directly to the wrapper
-        wrapper.cache_info = self.cache_info  # type: ignore[attr-defined]
+        # Assign instance methods to the wrapper, but create a specific
+        # cache_info function for the wrapper that knows its own maxsize.
+        def wrapper_cache_info() -> CacheInfo:
+            """Return cache statistics for this specific wrapper."""
+            # Note: hits/misses/currsize are still shared across the main cache object
+            return CacheInfo(
+                hits=self._hits,
+                misses=self._misses,
+                maxsize=wrapper_maxsize,  # Report the wrapper's specific maxsize
+                currsize=self._get_current_size(),
+            )
+
+        wrapper.cache_info = wrapper_cache_info  # type: ignore[attr-defined]
         wrapper.cache_clear = wrapper.clear = self.clear  # type: ignore[attr-defined]
 
         return wrapper
