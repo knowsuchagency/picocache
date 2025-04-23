@@ -127,7 +127,8 @@ class _BaseCache(ABC):
 
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
-            key = _make_key(args, kwargs, typed)
+            # Pass the module name of the original function for key uniqueness
+            key = _make_key(args, kwargs, typed, module_name=func.__module__)
 
             with lock:
                 # 1. Check persistent cache
