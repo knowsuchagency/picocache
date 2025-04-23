@@ -77,7 +77,7 @@ class SQLAlchemyCache(_BaseCache):
             self._hits += 1
             return pickle.loads(bytes.fromhex(row.value))
 
-    def _store(self, key: str, value: Any):
+    def _store(self, key: str, value: Any, wrapper_maxsize: int | None = None):
         pickled = pickle.dumps(value, protocol=self._PROTO).hex()
         current_time = time.time()
         with self._engine.begin() as conn:

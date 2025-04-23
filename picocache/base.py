@@ -142,7 +142,8 @@ class _BaseCache(ABC):
                 result = func(*args, **kwargs)
 
                 # 3. Store result in persistent cache BEFORE checking eviction
-                self._store(key, result)
+                # Pass wrapper_maxsize to _store for backend LRU logic
+                self._store(key, result, wrapper_maxsize)
 
                 # 4. Perform eviction if needed (backend-specific)
                 # Called AFTER store, so current_size includes the new item.

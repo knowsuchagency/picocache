@@ -58,7 +58,7 @@ class SQLiteCache(_BaseCache):
             finally:
                 cursor.close()
 
-    def _store(self, key: str, value: Any) -> None:
+    def _store(self, key: str, value: Any, wrapper_maxsize: int | None = None) -> None:
         pickled_value = pickle.dumps(value, protocol=self._PROTO)
         with self._lock:
             cursor = self._conn.cursor()
