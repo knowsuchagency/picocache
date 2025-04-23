@@ -49,7 +49,7 @@ class DjangoCache(_BaseCache):
             # self._cache.delete(key)
             return _MISSING  # Treat unpickling errors as misses
 
-    def _store(self, key: str, value: Any) -> None:
+    def _store(self, key: str, value: Any, wrapper_maxsize: int | None = None) -> None:
         try:
             pickled_value = pickle.dumps(value, protocol=self._PROTO)
             self._cache.set(key, pickled_value, timeout=self._default_timeout)
@@ -65,7 +65,7 @@ class DjangoCache(_BaseCache):
             )
             pass  # Logged the error, skip caching
 
-    def _evict_if_needed(self) -> None:
+    def _evict_if_needed(self, wrapper_maxsize: int | None = None) -> None:
         # Django's cache backend handles eviction based on its own policies
         # (e.g., LRU, max entries, timeout).
         # self._default_maxsize is not directly used by this backend.
