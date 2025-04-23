@@ -129,7 +129,7 @@ The wrapped function gains:
 ## Running the tests
 
 ```bash
-uv sync
+uv sync --all-extras
 just test
 ```
 
