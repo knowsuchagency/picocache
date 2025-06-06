@@ -23,7 +23,7 @@ class RedisCache(_BaseCache):
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
-        self._r = (
+        self._client = (
             redis.Redis.from_url(url)
             if url
             else redis.Redis(host=host, port=port, db=db, password=password)
@@ -34,12 +34,13 @@ class RedisCache(_BaseCache):
 
     def _lookup(self, key: str):
         full_key = self._ns + key
-        data = self._r.get(full_key)
+        data = self._client.get(full_key)
         if data is None:
             return _MISSING
         # Update LRU score on hit
-        self._r.zadd(self._lru_key, {full_key: time.time()})
-        self._hits += 1
+        self._client.zadd(self._lru_key, {full_key: time.time()})
+        with self._stats_lock:
+            self._hits += 1
         try:
             value = pickle.loads(data)
             return value
@@ -52,7 +53,7 @@ class RedisCache(_BaseCache):
         try:
             pickled = pickle.dumps(value, protocol=self._PROTO)
             # Use a pipeline for atomicity
-            pipe = self._r.pipeline()
+            pipe = self._client.pipeline()
             if self._default_ttl is None:
                 pipe.set(full_key, pickled)
             else:
@@ -72,16 +73,18 @@ class RedisCache(_BaseCache):
         # Eviction logic using wrapper_maxsize
         if wrapper_maxsize is not None and wrapper_maxsize > 0:
             # Check size *after* the new item has potentially been added by _store
-            current_size = self._r.zcard(self._lru_key)
+            current_size = self._client.zcard(self._lru_key)
             if current_size > wrapper_maxsize:
                 # Number of items to remove
                 num_to_remove = current_size - wrapper_maxsize
                 # Get the keys of the oldest items (lowest scores)
                 # We want the oldest, so range from 0 up to num_to_remove - 1
-                keys_to_remove = self._r.zrange(self._lru_key, 0, num_to_remove - 1)
+                keys_to_remove = self._client.zrange(
+                    self._lru_key, 0, num_to_remove - 1
+                )
                 if keys_to_remove:
                     # Use pipeline to remove data keys and LRU entries
-                    evict_pipe = self._r.pipeline()
+                    evict_pipe = self._client.pipeline()
                     evict_pipe.delete(*keys_to_remove)
                     evict_pipe.zrem(self._lru_key, *keys_to_remove)
                     evict_pipe.execute()
@@ -91,16 +94,16 @@ class RedisCache(_BaseCache):
         cursor = 0
         match = self._ns + "*"
         while True:
-            cursor, keys = self._r.scan(cursor=cursor, match=match)
+            cursor, keys = self._client.scan(cursor=cursor, match=match)
             if keys:
-                self._r.delete(*keys)
+                self._client.delete(*keys)
             if cursor == 0:
                 break
         # Also delete the LRU tracker key *after* the loop
-        self._r.delete(self._lru_key)
+        self._client.delete(self._lru_key)
 
     def _get_current_size(self) -> int:
         """Return the number of keys tracked by the LRU mechanism."""
         # Always return the size of the LRU tracker set.
         # If maxsize wasn't used, the set won't be populated by _store.
-        return self._r.zcard(self._lru_key)
+        return self._client.zcard(self._lru_key)

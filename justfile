@@ -1,4 +1,7 @@
-test:
+format:
+    uv run ruff format .
+
+test: format
     PYTHONPATH=. uv run pytest -v tests/
 
 clean:

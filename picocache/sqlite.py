@@ -12,7 +12,6 @@ from .base import _BaseCache, _MISSING
 class SQLiteCache(_BaseCache):
     """Persistent cache backed by SQLite."""
 
-
     def __init__(
         self,
         db_path: str = "picocache.db",
@@ -54,7 +53,8 @@ class SQLiteCache(_BaseCache):
                     (time.time(), key),
                 )
                 self._conn.commit()
-                self._hits += 1  # Increment hit counter
+                with self._stats_lock:
+                    self._hits += 1  # Increment hit counter
                 return pickle.loads(row[0])
             finally:
                 cursor.close()
