@@ -81,9 +81,7 @@ class _BaseCache(ABC):
         """Store key/value in the persistent backend."""
         raise NotImplementedError
 
-    def _evict_if_needed(
-        self, wrapper_maxsize: int | None = None
-    ) -> None:  # noqa: D401
+    def _evict_if_needed(self, wrapper_maxsize: int | None = None) -> None:  # noqa: D401
         """Perform eviction in the persistent backend if necessary."""
         # Backends are responsible for their own eviction logic (size, TTL, etc.)
         pass  # Base implementation does nothing

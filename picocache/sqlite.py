@@ -12,7 +12,6 @@ from .base import _BaseCache, _MISSING
 class SQLiteCache(_BaseCache):
     """Persistent cache backed by SQLite."""
 
-
     def __init__(
         self,
         db_path: str = "picocache.db",
