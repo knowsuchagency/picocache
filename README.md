@@ -99,6 +99,54 @@ def expensive_fn(x):
 
 ---
 
+## Thread Safety
+
+PicoCache is **fully thread-safe**. Multiple threads can safely call decorated functions concurrently without any additional synchronization.
+
+### Key Thread Safety Features:
+
+1. **Atomic Operations**: All cache operations (lookup, store, evict) are atomic and protected by locks.
+2. **No Duplicate Computation**: If multiple threads request the same uncached value simultaneously, only one thread computes it while others wait for the result.
+3. **Safe Statistics**: Hit/miss counters are updated atomically.
+4. **Concurrent Access**: Different threads can safely access different cached values in parallel.
+
+### Backend-Specific Notes:
+
+- **SQLiteCache**: Uses a global lock for all operations. Thread-safe but may become a bottleneck under high concurrency.
+- **RedisCache**: Leverages Redis's atomic operations and connection pooling for excellent concurrent performance.
+- **SQLAlchemyCache**: Uses SQLAlchemy's connection pooling for thread-safe database access.
+- **DjangoCache**: Inherits thread safety from Django's cache framework. When `maxsize` is specified, adds an additional `functools.lru_cache` layer which is also thread-safe.
+
+### Example with Threading:
+
+```python
+from picocache import SQLiteCache
+import threading
+
+cache = SQLiteCache()
+
+@cache(maxsize=128)
+def expensive_computation(x):
+    import time
+    time.sleep(1)  # Simulate expensive work
+    return x * x
+
+# Multiple threads can safely call the cached function
+threads = []
+for i in range(10):
+    t = threading.Thread(target=lambda: expensive_computation(5))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+# Only one thread will perform the computation; others will wait and reuse the result
+print(expensive_computation.cache_info())  # Shows hits=9, misses=1
+```
+
+---
+
 ## API
 
 Each decorator is constructed with connection details (if any) and **called** with

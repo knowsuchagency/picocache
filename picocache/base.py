@@ -44,6 +44,8 @@ class _BaseCache(ABC):
         # Simple in-memory counters (won't persist across instances/restarts)
         self._hits = 0
         self._misses = 0
+        # Single lock instance for all cache operations
+        self._stats_lock = threading.Lock()
 
     def __call__(
         self, maxsize: int | None | Ellipsis = ..., typed: bool | Ellipsis = ...
@@ -110,7 +112,8 @@ class _BaseCache(ABC):
 
     def clear(self) -> None:
         """Clear the cache and reset statistics."""
-        with threading.Lock():  # Ensure atomicity for clear + stat reset
+        # Note: This clears the entire cache backend, not just for a specific function
+        with self._stats_lock:
             self._clear()
             self._hits = 0
             self._misses = 0
@@ -134,10 +137,12 @@ class _BaseCache(ABC):
                 # 1. Check persistent cache
                 result = self._lookup(key)  # _lookup should increment self._hits
                 if result is not _MISSING:
+                    # Hit counter is incremented by _lookup
                     return result
 
                 # Cache miss if we reach here
-                self._misses += 1
+                with self._stats_lock:
+                    self._misses += 1
 
                 # 2. Cache miss: call original function
                 result = func(*args, **kwargs)

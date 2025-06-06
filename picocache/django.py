@@ -42,7 +42,8 @@ class DjangoCache(_BaseCache):
         # If we found something, try to unpickle it
         try:
             value = pickle.loads(cached_value)
-            self._hits += 1  # Increment hit counter *only* after successful unpickling
+            with self._stats_lock:
+                self._hits += 1  # Increment hit counter *only* after successful unpickling
             return value
         except (pickle.UnpicklingError, TypeError, EOFError) as e:
             logger.warning(

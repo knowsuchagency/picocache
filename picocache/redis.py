@@ -39,7 +39,8 @@ class RedisCache(_BaseCache):
             return _MISSING
         # Update LRU score on hit
         self._r.zadd(self._lru_key, {full_key: time.time()})
-        self._hits += 1
+        with self._stats_lock:
+            self._hits += 1
         try:
             value = pickle.loads(data)
             return value

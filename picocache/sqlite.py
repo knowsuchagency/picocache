@@ -54,7 +54,8 @@ class SQLiteCache(_BaseCache):
                     (time.time(), key),
                 )
                 self._conn.commit()
-                self._hits += 1  # Increment hit counter
+                with self._stats_lock:
+                    self._hits += 1  # Increment hit counter
                 return pickle.loads(row[0])
             finally:
                 cursor.close()

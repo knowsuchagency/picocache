@@ -74,7 +74,8 @@ class SQLAlchemyCache(_BaseCache):
                 .values(last_accessed=time.time())
             )
             conn.execute(update_stmt)
-            self._hits += 1
+            with self._stats_lock:
+                self._hits += 1
             return pickle.loads(bytes.fromhex(row.value))
 
     def _store(self, key: str, value: Any, wrapper_maxsize: int | None = None):
