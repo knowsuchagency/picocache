@@ -4,7 +4,7 @@
       "Bash(find:*)",
       "WebFetch(domain:github.com)",
       "Bash(uv run:*)",
-      "Bash(uv just:*)"
+      "Bash(just:*)"
     ],
     "deny": []
   }
