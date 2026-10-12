@@ -7,15 +7,25 @@ import pickle
 
 
 def _make_key(
-    args: Tuple[Any, ...], kwargs: Dict[str, Any], typed: bool, module_name: str
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+    typed: bool,
+    module_name: str,
+    qualname: str,
 ) -> str:
     """Create a stable hashable key from call args/kwargs (mimics internal
     ``functools._make_key`` but returns hex digest for external storage).
 
-    Includes the module name to prevent collisions between functions in
-    different modules called with the same arguments.
+    Includes the module name and function qualname to prevent collisions
+    between functions in different modules *or* different functions within
+    the same module called with the same arguments.
+
+    .. note::
+        Adding ``qualname`` changes the SHA-256 digest for every key.
+        Existing persisted caches built with an older version of picocache
+        will be **invalidated** (one-time cold-start after upgrade).
     """
-    key_parts: Tuple[Any, ...] = (module_name,) + args
+    key_parts: Tuple[Any, ...] = (module_name, qualname) + args
     if kwargs:
         key_parts += (object(),)  # separator to avoid collisions
         for item in sorted(kwargs.items()):

@@ -115,7 +115,13 @@ class DjangoCache(_BaseCache):
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
             # Use the same key generation as the base class
-            key = _make_key(args, kwargs, typed, module_name=func.__module__)
+            key = _make_key(
+                args,
+                kwargs,
+                typed,
+                module_name=func.__module__,
+                qualname=func.__qualname__,
+            )
 
             with lock:
                 # 1. Check persistent cache (Django backend)

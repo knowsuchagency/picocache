@@ -279,3 +279,34 @@ def test_maxsize_eviction(cache):
 
     # Clean up
     identity.cache_clear()
+
+
+def test_same_module_different_functions_no_collision(cache):
+    """Two functions in the same module with identical signatures must not share a cache key.
+
+    Regression test: before the fix, _make_key included module_name but not the
+    function qualname, so two functions in the same module called with the same
+    args hashed to the same key and g(5) silently returned f's cached result.
+    """
+    backend_name, cache_deco = cache
+
+    @cache_deco
+    def f(x: int) -> str:
+        return f"f:{x}"
+
+    @cache_deco
+    def g(x: int) -> str:
+        return f"g:{x}"
+
+    f.cache_clear()
+    g.cache_clear()
+
+    assert f(5) == "f:5"
+
+    result = g(5)
+    assert result == "g:5", (
+        f"[{backend_name}] cache collision: g(5) returned {result!r} instead of 'g:5'"
+    )
+
+    f.cache_clear()
+    g.cache_clear()

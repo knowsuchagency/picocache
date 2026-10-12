@@ -129,7 +129,13 @@ class _BaseCache(ABC):
         @_copy_metadata(func)
         def wrapper(*args: Any, **kwargs: Any):
             # Pass the module name of the original function for key uniqueness
-            key = _make_key(args, kwargs, typed, module_name=func.__module__)
+            key = _make_key(
+                args,
+                kwargs,
+                typed,
+                module_name=func.__module__,
+                qualname=func.__qualname__,
+            )
 
             with lock:
                 # 1. Check persistent cache
